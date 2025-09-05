@@ -220,59 +220,20 @@ class ServiceCommands(object):
         """Show a list of all running services. Filter by host & service
         name
         """
-        servicegroup_api = servicegroup.API()
-        ctxt = context.get_admin_context()
-        services = db.service_get_all(ctxt)
-        services = availability_zones.set_availability_zones(ctxt, services)
-        if host:
-            services = [s for s in services if s['host'] == host]
-        if service:
-            services = [s for s in services if s['binary'] == service]
-        print_format = "%-16s %-36s %-16s %-10s %-5s %-10s"
-        print(print_format % (
-            _('Binary'),
-            _('Host'),
-            _('Zone'),
-            _('Status'),
-            _('State'),
-            _('Updated_At')))
-        for svc in services:
-            alive = servicegroup_api.service_is_up(svc)
-            art = (alive and ":-)") or "XXX"
-            active = 'enabled'
-            if svc['disabled']:
-                active = 'disabled'
-            print(print_format % (svc['binary'], svc['host'],
-                                  svc['availability_zone'], active, art,
-                                  svc['updated_at']))
+
+    pass
 
     @args('--host', metavar='<host>', help='Host')
     @args('--service', metavar='<service>', help='Prototype service')
     def enable(self, host, service):
         """Enable scheduling for a service."""
-        ctxt = context.get_admin_context()
-        try:
-            svc = db.service_get_by_args(ctxt, host, service)
-            db.service_update(ctxt, svc['id'], {'disabled': False})
-        except exception.NotFound as ex:
-            print(_("error: %s") % ex)
-            return (2)
-        print((_("Service %(service)s on host %(host)s enabled.") %
-               {'service': service, 'host': host}))
+        pass
 
     @args('--host', metavar='<host>', help='Host')
     @args('--service', metavar='<service>', help='Prototype service')
     def disable(self, host, service):
         """Disable scheduling for a service."""
-        ctxt = context.get_admin_context()
-        try:
-            svc = db.service_get_by_args(ctxt, host, service)
-            db.service_update(ctxt, svc['id'], {'disabled': True})
-        except exception.NotFound as ex:
-            print(_("error: %s") % ex)
-            return (2)
-        print((_("Service %(service)s on host %(host)s disabled.") %
-               {'service': service, 'host': host}))
+        pass
 
     def _show_host_resources(self, context, host):
         """Shows the physical/usage resource given by hosts.
@@ -288,45 +249,7 @@ class ServiceCommands(object):
                     'local_gb_used': 64}
 
         """
-        # Getting compute node info and related instances info
-        service_ref = db.service_get_by_compute_host(context, host)
-        instance_refs = db.instance_get_all_by_host(context,
-                                                    service_ref['host'])
-
-        # Getting total available/used resource
-        compute_ref = service_ref['compute_node'][0]
-        resource = {'vcpus': compute_ref['vcpus'],
-                    'memory_mb': compute_ref['memory_mb'],
-                    'local_gb': compute_ref['local_gb'],
-                    'vcpus_used': compute_ref['vcpus_used'],
-                    'memory_mb_used': compute_ref['memory_mb_used'],
-                    'local_gb_used': compute_ref['local_gb_used']}
-        usage = dict()
-        if not instance_refs:
-            return {'resource': resource, 'usage': usage}
-
-        # Getting usage resource per project
-        project_ids = [i['project_id'] for i in instance_refs]
-        project_ids = list(set(project_ids))
-        for project_id in project_ids:
-            vcpus = [i['vcpus'] for i in instance_refs
-                     if i['project_id'] == project_id]
-
-            mem = [i['memory_mb'] for i in instance_refs
-                   if i['project_id'] == project_id]
-
-            root = [i['root_gb'] for i in instance_refs
-                    if i['project_id'] == project_id]
-
-            ephemeral = [i['ephemeral_gb'] for i in instance_refs
-                         if i['project_id'] == project_id]
-
-            usage[project_id] = {'vcpus': sum(vcpus),
-                                 'memory_mb': sum(mem),
-                                 'root_gb': sum(root),
-                                 'ephemeral_gb': sum(ephemeral)}
-
-        return {'resource': resource, 'usage': usage}
+        pass
 
     @args('--host', metavar='<host>', help='Host')
     def describe_resource(self, host):
@@ -335,57 +258,7 @@ class ServiceCommands(object):
         :param host: hostname.
 
         """
-        try:
-            result = self._show_host_resources(context.get_admin_context(),
-                                               host=host)
-        except exception.PrototypeException as ex:
-            print(_("error: %s") % ex)
-            return 2
-
-        if not isinstance(result, dict):
-            print(_('An unexpected error has occurred.'))
-            print(_('[Result]'), result)
-        else:
-            # Printing a total and used_now
-            # (NOTE)The host name width 16 characters
-            print('%(a)-25s%(b)16s%(c)8s%(d)8s%(e)8s' % {"a": _('HOST'),
-                                                         "b": _('PROJECT'),
-                                                         "c": _('cpu'),
-                                                         "d": _('mem(mb)'),
-                                                         "e": _('hdd')})
-            print(('%(a)-16s(total)%(b)26s%(c)8s%(d)8s' %
-                   {"a": host,
-                    "b": result['resource']['vcpus'],
-                    "c": result['resource']['memory_mb'],
-                    "d": result['resource']['local_gb']}))
-
-            print(('%(a)-16s(used_now)%(b)23s%(c)8s%(d)8s' %
-                   {"a": host,
-                    "b": result['resource']['vcpus_used'],
-                    "c": result['resource']['memory_mb_used'],
-                    "d": result['resource']['local_gb_used']}))
-
-            # Printing a used_max
-            cpu_sum = 0
-            mem_sum = 0
-            hdd_sum = 0
-            for p_id, val in result['usage'].items():
-                cpu_sum += val['vcpus']
-                mem_sum += val['memory_mb']
-                hdd_sum += val['root_gb']
-                hdd_sum += val['ephemeral_gb']
-            print('%(a)-16s(used_max)%(b)23s%(c)8s%(d)8s' % {"a": host,
-                                                             "b": cpu_sum,
-                                                             "c": mem_sum,
-                                                             "d": hdd_sum})
-
-            for p_id, val in result['usage'].items():
-                print('%(a)-25s%(b)16s%(c)8s%(d)8s%(e)8s' % {
-                    "a": host,
-                    "b": p_id,
-                    "c": val['vcpus'],
-                    "d": val['memory_mb'],
-                    "e": val['root_gb'] + val['ephemeral_gb']})
+        pass
 
 
 class DbCommands(object):

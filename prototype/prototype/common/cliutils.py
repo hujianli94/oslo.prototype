@@ -33,6 +33,10 @@ from prototype.common.apiclient import exceptions
 from prototype.common.i18n import _
 
 
+class MissingArgs(exceptions.ClientException):
+    message = _("Missing argument(s): %(args)s")
+
+
 def validate_args(fn, *args, **kwargs):
     """Check that the supplied args are sufficient for calling a function.
 
