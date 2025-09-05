@@ -72,16 +72,15 @@ from prototype.db import migration
 from prototype.common import exception
 from prototype.common.i18n import _
 from oslo_log import log as logging
-from prototype.common import utils
+from prototype.common import cliutils
 from prototype import version
 
 CONF = cfg.CONF
 
 
-
-
 class MissingArgs(Exception):
     """Supplied arguments are not sufficient for calling a function."""
+
     def __init__(self, missing):
         self.missing = missing
         msg = _("Missing arguments: %s") % ", ".join(missing)
@@ -120,12 +119,15 @@ def validate_args(fn, *args, **kwargs):
     if missing:
         raise MissingArgs(missing)
 
+
 # Decorators for actions
 def args(*args, **kwargs):
     def _decorator(func):
         func.__dict__.setdefault('args', []).insert(0, (args, kwargs))
         return func
+
     return _decorator
+
 
 class ShellCommands(object):
     def bpython(self):
@@ -150,7 +152,7 @@ class ShellCommands(object):
         self.run('python')
 
     @args('--shell', metavar='<bpython|ipython|python >',
-            help='Python shell')
+          help='Python shell')
     def run(self, shell=None):
         """Runs a Python interactive interpreter."""
         if not shell:
@@ -198,7 +200,7 @@ class ShellCommands(object):
 
         arguments: path
         """
-        exec(compile(open(path).read(), path, 'exec'), locals(), globals())
+        exec (compile(open(path).read(), path, 'exec'), locals(), globals())
 
 
 def _db_error(caught_exception):
@@ -207,6 +209,7 @@ def _db_error(caught_exception):
             "been created.\nPlease create a database using "
             "'prototype-manage db sync' before running this command."))
     exit(1)
+
 
 class ServiceCommands(object):
     """Enable and disable running services."""
@@ -227,12 +230,12 @@ class ServiceCommands(object):
             services = [s for s in services if s['binary'] == service]
         print_format = "%-16s %-36s %-16s %-10s %-5s %-10s"
         print(print_format % (
-                    _('Binary'),
-                    _('Host'),
-                    _('Zone'),
-                    _('Status'),
-                    _('State'),
-                    _('Updated_At')))
+            _('Binary'),
+            _('Host'),
+            _('Zone'),
+            _('Status'),
+            _('State'),
+            _('Updated_At')))
         for svc in services:
             alive = servicegroup_api.service_is_up(svc)
             art = (alive and ":-)") or "XXX"
@@ -253,7 +256,7 @@ class ServiceCommands(object):
             db.service_update(ctxt, svc['id'], {'disabled': False})
         except exception.NotFound as ex:
             print(_("error: %s") % ex)
-            return(2)
+            return (2)
         print((_("Service %(service)s on host %(host)s enabled.") %
                {'service': service, 'host': host}))
 
@@ -267,7 +270,7 @@ class ServiceCommands(object):
             db.service_update(ctxt, svc['id'], {'disabled': True})
         except exception.NotFound as ex:
             print(_("error: %s") % ex)
-            return(2)
+            return (2)
         print((_("Service %(service)s on host %(host)s disabled.") %
                {'service': service, 'host': host}))
 
@@ -378,13 +381,11 @@ class ServiceCommands(object):
 
             for p_id, val in result['usage'].items():
                 print('%(a)-25s%(b)16s%(c)8s%(d)8s%(e)8s' % {
-                        "a": host,
-                        "b": p_id,
-                        "c": val['vcpus'],
-                        "d": val['memory_mb'],
-                        "e": val['root_gb'] + val['ephemeral_gb']})
-
-
+                    "a": host,
+                    "b": p_id,
+                    "c": val['vcpus'],
+                    "d": val['memory_mb'],
+                    "e": val['root_gb'] + val['ephemeral_gb']})
 
 
 class DbCommands(object):
@@ -447,7 +448,7 @@ def add_command_parsers(subparsers):
                 kwargs.setdefault('dest', args[0][2:])
                 if kwargs['dest'].startswith('action_kwarg_'):
                     action_kwargs.append(
-                            kwargs['dest'][len('action_kwarg_'):])
+                        kwargs['dest'][len('action_kwarg_'):])
                 else:
                     action_kwargs.append(kwargs['dest'])
                     kwargs['dest'] = 'action_kwarg_' + kwargs['dest']
@@ -485,12 +486,11 @@ def main():
                 print(_('sudo failed, continuing as if nothing happened'))
 
         print(_('Please re-run prototype-manage as root.'))
-        return(2)
-
+        return (2)
 
     if CONF.category.name == "version":
         print(version.version_string_with_package())
-        return(0)
+        return (0)
 
     if CONF.category.name == "bash-completion":
         if not CONF.category.query_category:
@@ -500,7 +500,7 @@ def main():
             command_object = fn()
             actions = methods_of(command_object)
             print(" ".join([k for (k, v) in actions]))
-        return(0)
+        return (0)
 
     fn = CONF.category.action_fn
     fn_args = [arg.decode('utf-8') for arg in CONF.category.action_args]
@@ -524,10 +524,10 @@ def main():
         print(fn.__doc__)
         CONF.print_help()
         print(e)
-        return(1)
+        return (1)
     try:
         ret = fn(*fn_args, **fn_kwargs)
-        return(ret)
+        return (ret)
     except Exception:
         print(_("Command failed, please check log for more info"))
         raise

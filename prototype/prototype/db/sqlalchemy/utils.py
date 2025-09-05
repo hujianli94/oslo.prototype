@@ -23,10 +23,9 @@ from sqlalchemy import Table
 from sqlalchemy.types import NullType
 
 from prototype.db.sqlalchemy import api as db
-from prototype import exception
-from prototype.i18n import _, _LE
+from prototype.common import exception
+from prototype.common.i18n import _, _LE
 from oslo_log import log as logging
-
 
 LOG = logging.getLogger(__name__)
 
@@ -67,22 +66,22 @@ def check_shadow_table(migrate_engine, table_name):
         if name not in shadow_columns:
             raise exception.PrototypeException(
                 _("Missing column %(table)s.%(column)s in shadow table")
-                        % {'column': name, 'table': shadow_table.name})
+                % {'column': name, 'table': shadow_table.name})
         shadow_column = shadow_columns[name]
 
         if not isinstance(shadow_column.type, type(column.type)):
             raise exception.PrototypeException(
                 _("Different types in %(table)s.%(column)s and shadow table: "
                   "%(c_type)s %(shadow_c_type)s")
-                        % {'column': name, 'table': table.name,
-                           'c_type': column.type,
-                           'shadow_c_type': shadow_column.type})
+                % {'column': name, 'table': table.name,
+                   'c_type': column.type,
+                   'shadow_c_type': shadow_column.type})
 
     for name, column in shadow_columns.iteritems():
         if name not in columns:
             raise exception.PrototypeException(
                 _("Extra column %(table)s.%(column)s in shadow table")
-                        % {'column': name, 'table': shadow_table.name})
+                % {'column': name, 'table': shadow_table.name})
     return True
 
 
@@ -101,10 +100,10 @@ def create_shadow_table(migrate_engine, table_name=None, table=None,
 
     if table_name is None and table is None:
         raise exception.PrototypeException(_("Specify `table_name` or `table` "
-                                        "param"))
+                                             "param"))
     if not (table_name is None or table is None):
         raise exception.PrototypeException(_("Specify only one param `table_name` "
-                                        "`table`"))
+                                             "`table`"))
 
     if table is None:
         table = Table(table_name, meta, autoload=True)

@@ -32,7 +32,6 @@ from oslo_db.sqlalchemy import session as db_session
 from oslo_db.sqlalchemy import utils as db_utils
 from oslo_utils import excutils
 from oslo_utils import timeutils
-import retrying
 import six
 from sqlalchemy import and_
 from sqlalchemy import Boolean
@@ -43,7 +42,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm import contains_eager
 from sqlalchemy.orm import joinedload
-from sqlalchemy.orm import joinedload_all
 from sqlalchemy.orm import noload
 from sqlalchemy.orm import undefer
 from sqlalchemy.schema import Table

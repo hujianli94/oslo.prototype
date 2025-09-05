@@ -16,9 +16,9 @@ import pbr.version
 
 from prototype.common.i18n import _LE
 
-NOVA_VENDOR = "OpenStack Foundation"
-NOVA_PRODUCT = "OpenStack Prototype"
-NOVA_PACKAGE = None  # OS distro package version suffix
+PROTOTYPE_VENDOR = "OpenStack Foundation"
+PROTOTYPE_PRODUCT = "OpenStack Prototype"
+PROTOTYPE_PACKAGE = None  # OS distro package version suffix
 
 loaded = False
 version_info = pbr.version.VersionInfo('prototype')
@@ -29,13 +29,13 @@ def _load_config():
     # Don't load in global context, since we can't assume
     # these modules are accessible when distutils uses
     # this module
-    import ConfigParser
+    from six.moves import configparser
 
     from oslo_config import cfg
 
     from oslo_log import log as logging
 
-    global loaded, NOVA_VENDOR, NOVA_PRODUCT, NOVA_PACKAGE
+    global loaded, PROTOTYPE_VENDOR, PROTOTYPE_PRODUCT, PROTOTYPE_PACKAGE
     if loaded:
         return
 
@@ -46,20 +46,20 @@ def _load_config():
         return
 
     try:
-        cfg = ConfigParser.RawConfigParser()
+        cfg = configparser.RawConfigParser()
         cfg.read(cfgfile)
 
-        NOVA_VENDOR = cfg.get("Prototype", "vendor")
+        PROTOTYPE_VENDOR = cfg.get("Prototype", "vendor")
         if cfg.has_option("Prototype", "vendor"):
-            NOVA_VENDOR = cfg.get("Prototype", "vendor")
+            PROTOTYPE_VENDOR = cfg.get("Prototype", "vendor")
 
-        NOVA_PRODUCT = cfg.get("Prototype", "product")
+        PROTOTYPE_PRODUCT = cfg.get("Prototype", "product")
         if cfg.has_option("Prototype", "product"):
-            NOVA_PRODUCT = cfg.get("Prototype", "product")
+            PROTOTYPE_PRODUCT = cfg.get("Prototype", "product")
 
-        NOVA_PACKAGE = cfg.get("Prototype", "package")
+        PROTOTYPE_PACKAGE = cfg.get("Prototype", "package")
         if cfg.has_option("Prototype", "package"):
-            NOVA_PACKAGE = cfg.get("Prototype", "package")
+            PROTOTYPE_PACKAGE = cfg.get("Prototype", "package")
     except Exception as ex:
         LOG = logging.getLogger(__name__)
         LOG.error(_LE("Failed to load %(cfgfile)s: %(ex)s"),
@@ -69,19 +69,19 @@ def _load_config():
 def vendor_string():
     _load_config()
 
-    return NOVA_VENDOR
+    return PROTOTYPE_VENDOR
 
 
 def product_string():
     _load_config()
 
-    return NOVA_PRODUCT
+    return PROTOTYPE_PRODUCT
 
 
 def package_string():
     _load_config()
 
-    return NOVA_PACKAGE
+    return PROTOTYPE_PACKAGE
 
 
 def version_string_with_package():

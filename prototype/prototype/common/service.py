@@ -25,7 +25,7 @@ from oslo_config import cfg
 import oslo_messaging as messaging
 from oslo_utils import importutils
 from oslo_concurrency import processutils
-
+from oslo_service import service
 from prototype import db
 from oslo_context import context
 from prototype.common import exception
@@ -37,13 +37,11 @@ from prototype.common import utils
 from prototype import version
 from prototype.common import wsgi
 
-
 from oslo_config import cfg
 
 from prototype.db import base
 from oslo_log import log as logging
 from prototype.openstack.common import periodic_task
-
 
 LOG = logging.getLogger(__name__)
 
@@ -52,8 +50,8 @@ service_opts = [
                default=10,
                help='Seconds between nodes reporting state to datastore'),
     cfg.BoolOpt('periodic_enable',
-               default=True,
-               help='Enable periodic tasks'),
+                default=True,
+                help='Enable periodic tasks'),
     cfg.IntOpt('periodic_fuzzy_delay',
                default=60,
                help='Range of seconds to randomly delay when starting the'
@@ -80,7 +78,7 @@ service_opts = [
     cfg.StrOpt('worker_manager',
                default='prototype.worker.manager.WorkerManager',
                help='Full class name for the Manager for console proxy'),
-    ]
+]
 
 CONF = cfg.CONF
 CONF.register_opts(service_opts)
@@ -100,14 +98,12 @@ class ServiceBase(object):
             db.service_update(self.context, svc.id, svc)
             break
         if self.model == None:
-            svc = {'host':self.host, 'type':self.type, 'topic':self.topic}
+            svc = {'host': self.host, 'type': self.type, 'topic': self.topic}
             self.model = db.service_create(self.context, svc)
         LOG.error("init ServiceInfo")
-        
-    def sync():
+
+    def sync(self, context):
         pass
-
-
 
 
 class Manager(base.Base, periodic_task.PeriodicTasks):
@@ -197,7 +193,6 @@ class RPCService(service.Service):
         self.model_disconnected = False
         ctxt = context.get_admin_context()
 
-
         self.manager.pre_start_hook()
 
         if self.backdoor_port is not None:
@@ -212,13 +207,10 @@ class RPCService(service.Service):
         ]
         endpoints.extend(self.manager.additional_endpoints)
 
-        
-        
         self.rpcserver = rpc.get_server(target, endpoints)
         self.rpcserver.start()
 
         self.manager.post_start_hook()
-
 
         if self.periodic_enable:
             if self.periodic_fuzzy_delay:
@@ -227,10 +219,8 @@ class RPCService(service.Service):
                 initial_delay = None
 
             self.tg.add_dynamic_timer(self.periodic_tasks,
-                                     initial_delay=initial_delay,
-                                     periodic_interval_max=self.periodic_interval_max)
-
-
+                                      initial_delay=initial_delay,
+                                      periodic_interval_max=self.periodic_interval_max)
 
     def __getattr__(self, key):
         manager = self.__dict__.get('manager', None)
@@ -265,7 +255,6 @@ class RPCService(service.Service):
             periodic_enable = CONF.periodic_enable
         if periodic_fuzzy_delay is None:
             periodic_fuzzy_delay = CONF.periodic_fuzzy_delay
-
 
         service_obj = cls(host, topic, manager,
                           report_interval=report_interval,

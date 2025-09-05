@@ -13,8 +13,6 @@ LOG = logging.getLogger(__name__)
 CONF = cfg.CONF
 
 
-
-
 class PrototypeException(Exception):
     """Base Prototype Exception
 
@@ -47,7 +45,7 @@ class PrototypeException(Exception):
                 # log the issue and the kwargs
                 LOG.exception(_LE('Exception in string format operation'))
                 for name, value in kwargs.iteritems():
-                    LOG.error("%s: %s" % (name, value))    # noqa
+                    LOG.error("%s: %s" % (name, value))  # noqa
 
                 if CONF.fatal_exception_format_errors:
                     raise exc_info[0], exc_info[1], exc_info[2]
@@ -61,3 +59,17 @@ class PrototypeException(Exception):
         # NOTE(mrodden): use the first argument to the python Exception object
         # which should be our full PrototypeException message, (see __init__)
         return self.args[0]
+
+
+class NotFound(PrototypeException):
+    msg_fmt = _("Resource could not be found.")
+    code = 404
+
+
+class Invalid(PrototypeException):
+    msg_fmt = _("Bad Request - Invalid Parameters")
+    code = 400
+
+
+class InvalidInput(Invalid):
+    msg_fmt = _("Invalid input received: %(reason)s")
