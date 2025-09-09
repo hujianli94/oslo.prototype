@@ -67,12 +67,38 @@ done
 function convert_project_file_content() {
     local old_project_name=$1
     local project_name=$2
-#    grep -Erl "*${old_project_name}*" --exclude-dir={.git,.idea} .
+
+    # 将首字母转换为大写
+    local old_project_name_capitalized=$(echo "${old_project_name:0:1}" | tr '[:lower:]' '[:upper:]')${old_project_name:1}
+    local project_name_capitalized=$(echo "${project_name:0:1}" | tr '[:lower:]' '[:upper:]')${project_name:1}
+
+    # 将字符串转换为全大写
+    local old_project_name_upper=$(echo "${old_project_name}" | tr '[:lower:]' '[:upper:]')
+    local project_name_upper=$(echo "${project_name}" | tr '[:lower:]' '[:upper:]')
+
+    # 替换普通字符串
+    # grep -Erl "*${old_project_name}*" --exclude-dir={.git,.idea} .
     if grep -Erq "*${old_project_name}*" --exclude-dir={.git,.idea} .; then
         echo " 🔄 替换文件内容：${old_project_name} → ${project_name}"
         grep -Erl "*${old_project_name}*" --exclude-dir={.git,.idea}  . | xargs -n 1 -t sed -i "s/${old_project_name}/${project_name}/g"
     else
         echo "⚠️ Error: No files containing the old project name found."
+    fi
+
+    # 替换首字母大写的字符串
+    if grep -Erq "${old_project_name_capitalized}" --exclude-dir={.git,.idea} .; then
+        echo " 🔄 替换文件内容：${old_project_name_capitalized} → ${project_name_capitalized}"
+        grep -Erl "${old_project_name_capitalized}" --exclude-dir={.git,.idea} . | xargs -n 1 -t sed -i "s/${old_project_name_capitalized}/${project_name_capitalized}/g"
+    else
+        echo "⚠️ No files were found that contained the old project name with the initial capitalized: ${old_project_name_capitalized}"
+    fi
+
+    # 替换全大写的字符串
+    if grep -Erq "${old_project_name_upper}" --exclude-dir={.git,.idea} .; then
+        echo " 🔄 替换文件内容：${old_project_name_upper} → ${project_name_upper}"
+        grep -Erl "${old_project_name_upper}" --exclude-dir={.git,.idea} . | xargs -n 1 -t sed -i "s/${old_project_name_upper}/${project_name_upper}/g"
+    else
+        echo "⚠️ 未找到包含全大写旧项目名的文件: ${old_project_name_upper}"
     fi
 }
 
