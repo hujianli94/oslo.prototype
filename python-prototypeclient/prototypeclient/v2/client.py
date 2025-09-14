@@ -15,11 +15,11 @@
 #    under the License.
 
 from prototypeclient.common import http
-from prototypeclient.v1 import services
+from prototypeclient.v2 import services
 
 
 class Client(object):
-    """Client for the Heat v1 API.
+    """Client for the Heat v2 API.
 
     :param string endpoint: A user-supplied endpoint URL for the prototype
                             service.

@@ -4,6 +4,7 @@ import six
 from prototypeclient import exc
 from oslo_utils import encodeutils
 from oslo_utils import strutils
+from prototypeclient.i18n import _
 
 from prototypeclient.common import utils
 

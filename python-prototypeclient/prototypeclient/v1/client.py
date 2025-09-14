@@ -32,5 +32,6 @@ class Client(object):
         """Initialize a new client for the Prototype API."""
         # 从kwargs中获取version参数
         version = kwargs.pop('version', '1')
+        kwargs['api_version'] = version
         self.http_client = http._construct_http_client(*args, **kwargs)
         self.services = services.ServiceManager(self.http_client)

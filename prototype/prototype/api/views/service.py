@@ -23,7 +23,9 @@ class ViewBuilder(object):
         """Generate a service detail."""
         # 检查是否有错误信息
         if "error" in service_data:
-            return service_data
+            return {
+                "service": service_data
+            }
         return {
             "service": self._build_service(service_data)
         }

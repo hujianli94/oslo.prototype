@@ -29,7 +29,7 @@ class ServiceManager(base.BaseManager):
 
         :rtype: list of :class:`Service`
         """
-        return self._list("/services", "data")
+        return self._list("/services", "service")
 
     def get(self, service):
         """Get a specific service.

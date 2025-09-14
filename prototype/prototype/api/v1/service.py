@@ -45,9 +45,23 @@ class ServiceController(wsgi.Controller):
 
     def create(self, req, body=None):
         """创建新服务"""
+        # LOG.debug("Raw request body: %s", req.body)
+        # LOG.debug("Parsed body parameter: %s", body)
         ctxt = context.get_admin_context()
-        service_data = body.get("service", {}) if body else {}
+        # 处理两种可能的数据格式
+        if body and isinstance(body, dict):
+            # 首先检查是否是嵌套格式 { "service": { ... } }
+            if "service" in body and isinstance(body["service"], dict):
+                service_data = body["service"]
+            else:
+                # 否则假设body本身就是服
+                service_data = body
+        else:
+            service_data = {}
 
+        # LOG.debug("Extracted service data: %s", service_data)
+
+        # 设置默认值
         if "host" not in service_data:
             service_data["host"] = "localhost"
         if "type" not in service_data:
@@ -58,7 +72,6 @@ class ServiceController(wsgi.Controller):
             service_data["report_count"] = 0
         if "availability_zone" not in service_data:
             service_data["availability_zone"] = "prototype"
-
         service = db.service_create(ctxt, service_data)
         view_builder = self._view_builder_class()
         result = view_builder.show(req, service)
@@ -94,4 +107,3 @@ class ServiceController(wsgi.Controller):
         except Exception as e:
             LOG.error("Error deleting service: %s" % e)
             return webob.Response(status=404)
-
