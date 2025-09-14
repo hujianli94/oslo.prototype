@@ -41,22 +41,43 @@ IMPL = concurrency.TpoolDbapiWrapper(CONF, backend_mapping=_BACKEND_MAPPING)
 
 LOG = logging.getLogger(__name__)
 
-###################
 
-def service_get(context, id):
-    return IMPL.service_get(context, id)
+############################ Service #################################
+def service_get(context, service_id):
+    return IMPL.service_get(context, service_id)
+
 
 def service_create(context, values):
     return IMPL.service_create(context, values)
 
-def service_update(context, id, values):
-    return IMPL.service_update(context, id, values)
 
-def service_delete(context, id):
-    return IMPL.service_delete(context, id)
+def service_update(context, service_id, values):
+    return IMPL.service_update(context, service_id, values)
 
-def service_destroy(context, id):
-    return IMPL.service_destroy(context, id)
 
-def service_list(context, **kwargs):
-    return IMPL.service_list(context, **kwargs)
+def service_destroy(context, service_id):
+    return IMPL.service_destroy(context, service_id)
+
+
+def service_get_all(context, disabled=None):
+    return IMPL.service_get_all(context, disabled)
+
+
+def service_get_all_by_topic(context, topic):
+    return IMPL.service_get_all_by_topic(context, topic)
+
+
+def service_get_by_host_and_topic(context, host, topic):
+    return IMPL.service_get_by_host_and_topic(context, host, topic)
+
+
+def service_get_all_by_host(context, host):
+    return IMPL.service_get_all_by_host(context, host)
+
+
+def service_get_by_args(context, host, binary):
+    return IMPL.service_get_by_args(context, host, binary)
+
+
+def service_get_all_by_host_and_topic(context, host, topic):
+    return IMPL.service_get_all_by_host_and_topic(context, host, topic)

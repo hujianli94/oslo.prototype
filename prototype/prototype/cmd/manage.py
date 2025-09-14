@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright (c) 2011 X.commerce, a business unit of eBay Inc.
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
@@ -76,6 +77,10 @@ from prototype.common import cliutils
 from prototype import version
 
 CONF = cfg.CONF
+
+import pymysql
+
+pymysql.install_as_MySQLdb()
 
 
 class MissingArgs(Exception):
@@ -360,6 +365,19 @@ def main():
 
         print(_('Please re-run prototype-manage as root.'))
         return (2)
+
+    # 优化：更精确地判断哪些操作不需要RPC
+    should_init_rpc = True
+    if (CONF.category.name == "db" or
+            CONF.category.name == "version" or
+            CONF.category.name == "bash-completion"):
+        should_init_rpc = False
+
+    # 只在需要时初始化RPC
+    if should_init_rpc:
+        # 延迟导入RPC模块，进一步减少不必要的导入
+        from prototype.common import rpc
+        rpc.init(CONF)
 
     if CONF.category.name == "version":
         print(version.version_string_with_package())

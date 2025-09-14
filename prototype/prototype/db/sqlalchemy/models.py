@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright (c) 2011 X.commerce, a business unit of eBay Inc.
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
@@ -19,7 +20,7 @@
 from oslo_config import cfg
 from oslo_db.sqlalchemy import models
 from oslo_utils import timeutils
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.declarative import declarative_base  # noqa
 from sqlalchemy import orm
 from sqlalchemy import Table, Column, ForeignKey, Index, MetaData
 from sqlalchemy import DateTime, Integer, String, BigInteger, Boolean, Text, Unicode, Float
@@ -30,6 +31,8 @@ BASE = declarative_base()
 
 class PrototypeBase(models.SoftDeleteMixin, models.TimestampMixin, models.ModelBase):
     metadata = None
+    __table_args__ = {'mysql_engine': 'InnoDB'}
+    __table_initialized__ = False
 
     def __copy__(self):
         """Implement a safe copy.copy()."""
@@ -44,11 +47,21 @@ class PrototypeBase(models.SoftDeleteMixin, models.TimestampMixin, models.ModelB
             session = api.get_session()
         super(PrototypeBase, self).save(session=session)
 
+    def delete(self, session):
+        """Delete this object."""
+        self.deleted = True
+        self.deleted_at = timeutils.utcnow()
+        self.save(session=session)
+
 
 class Service(BASE, PrototypeBase):
+    """Represents a running service on a host."""
     __tablename__ = 'service'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, nullable=False)
     host = Column(String(255))
+    binary = Column(String(255))  # 服务运行的二进制文件名
     type = Column(String(255))
     topic = Column(String(255))
+    report_count = Column(Integer, nullable=False, default=0)  # 上报次数
     disabled = Column(Boolean, default=False)
+    availability_zone = Column(String(255), default='prototype')

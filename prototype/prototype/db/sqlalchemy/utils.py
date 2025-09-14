@@ -16,7 +16,7 @@
 from oslo_db import exception as db_exc
 from oslo_db.sqlalchemy import utils as oslodbutils
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.ext.compiler import compiles  # noqa
 from sqlalchemy import MetaData
 from sqlalchemy.sql.expression import UpdateBase
 from sqlalchemy import Table

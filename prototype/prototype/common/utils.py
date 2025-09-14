@@ -14,7 +14,6 @@ import struct
 import sys
 import tempfile
 from xml.sax import saxutils
-
 import eventlet
 import netaddr
 from oslo_config import cfg
@@ -29,27 +28,6 @@ import six
 from prototype.common import exception
 from prototype.common.i18n import _, _LE, _LW
 from oslo_log import log as logging
-
-
-monkey_patch_opts = [
-    cfg.BoolOpt('monkey_patch',
-                default=False,
-                help='Whether to log monkey patching'),
-    cfg.ListOpt('monkey_patch_modules',
-                default=[],
-                help='List of modules/decorators to monkey patch'),
-]
-utils_opts = [
-    cfg.IntOpt('password_length',
-               default=12,
-               help='Length of generated instance admin passwords'),
-    cfg.StrOpt('rootwrap_config',
-               default="rootwrap.conf",
-               help='Path to the rootwrap configuration file to use for '
-                    'running commands as root'),
-    cfg.StrOpt('tempdir',
-               help='Explicitly specify the temporary working directory'),
-]
 
 """ This group is for very specific reasons.
 
@@ -70,10 +48,8 @@ workarounds_opts = [
                 help='This option allows a fallback to sudo for performance '
                      'reasons. For example see '
                      'https://bugs.launchpad.net/prototype/+bug/1415106'),
-    ]
+]
 CONF = cfg.CONF
-CONF.register_opts(monkey_patch_opts)
-CONF.register_opts(utils_opts)
 CONF.register_opts(workarounds_opts, group='workarounds')
 
 LOG = logging.getLogger(__name__)
@@ -85,6 +61,34 @@ TIME_UNITS = {
     'HOUR': 3600,
     'DAY': 86400
 }
+
+
+class ComparableMixin(object):
+    def _compare(self, other, method):
+        try:
+            return method(self._cmpkey(), other._cmpkey())
+        except (AttributeError, TypeError):
+            # _cmpkey not implemented, or return different type,
+            # so I can't compare with "other".
+            return NotImplemented
+
+    def __lt__(self, other):
+        return self._compare(other, lambda s, o: s < o)
+
+    def __le__(self, other):
+        return self._compare(other, lambda s, o: s <= o)
+
+    def __eq__(self, other):
+        return self._compare(other, lambda s, o: s == o)
+
+    def __ge__(self, other):
+        return self._compare(other, lambda s, o: s >= o)
+
+    def __gt__(self, other):
+        return self._compare(other, lambda s, o: s > o)
+
+    def __ne__(self, other):
+        return self._compare(other, lambda s, o: s != o)
 
 
 def monkey_patch():
@@ -120,13 +124,14 @@ def monkey_patch():
                 clz = importutils.import_class("%s.%s" % (module, key))
                 for method, func in inspect.getmembers(clz, inspect.ismethod):
                     setattr(clz, method,
-                        decorator("%s.%s.%s" % (module, key, method), func))
+                            decorator("%s.%s.%s" % (module, key, method), func))
             # set the decorator for the function
             if isinstance(module_data[key], pyclbr.Function):
                 func = importutils.import_class("%s.%s" % (module, key))
                 setattr(sys.modules[module], key,
-                    decorator("%s.%s" % (module, key), func))
-                    
+                        decorator("%s.%s" % (module, key), func))
+
+
 @contextlib.contextmanager
 def tempdir(**kwargs):
     argdict = kwargs.copy()
@@ -140,7 +145,7 @@ def tempdir(**kwargs):
             shutil.rmtree(tmpdir)
         except OSError as e:
             LOG.error(_LE('Could not remove tmpdir: %s'), e)
-            
+
 
 def utf8(value):
     """Try to turn a string into utf-8 if possible.
@@ -153,7 +158,30 @@ def utf8(value):
         return value.encode('utf-8')
     assert isinstance(value, str)
     return value
-    
+
+
+def find_config(config_path):
+    """Find a configuration file using the given hint.
+
+    :param config_path: Full or relative path to the config.
+    :returns: Full path of the config, if it exists.
+    :raises: `cinder.exception.ConfigNotFound`
+
+    """
+    possible_locations = [
+        config_path,
+        os.path.join(CONF.state_path, "etc", "prototype", config_path),
+        os.path.join(CONF.state_path, "etc", config_path),
+        os.path.join(CONF.state_path, config_path),
+        "/etc/prototype/%s" % config_path,
+    ]
+
+    for path in possible_locations:
+        if os.path.exists(path):
+            return os.path.abspath(path)
+
+    raise exception.ConfigNotFound(path=os.path.abspath(config_path))
+
 
 def _get_root_helper():
     if CONF.workarounds.disable_rootwrap:
@@ -168,7 +196,8 @@ def execute(*cmd, **kwargs):
     if 'run_as_root' in kwargs and 'root_helper' not in kwargs:
         kwargs['root_helper'] = _get_root_helper()
     return processutils.execute(*cmd, **kwargs)
-    
+
+
 class LazyPluggable(object):
     """A pluggable backend loaded lazily based on some value."""
 
@@ -202,3 +231,16 @@ class LazyPluggable(object):
     def __getattr__(self, key):
         backend = self.__get_backend()
         return getattr(backend, key)
+
+
+def walk_class_hierarchy(clazz, encountered=None):
+    """Walk class hierarchy, yielding most derived classes first."""
+    if not encountered:
+        encountered = []
+    for subclass in clazz.__subclasses__():
+        if subclass not in encountered:
+            encountered.append(subclass)
+            # drill down to leaves first
+            for subsubclass in walk_class_hierarchy(subclass, encountered):
+                yield subsubclass
+            yield subclass

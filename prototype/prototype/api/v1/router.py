@@ -1,60 +1,62 @@
-# Copyright 2012 OpenStack Foundation.
-# All Rights Reserved.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-from prototype.api.v1 import manager
-from prototype.common import wsgi
-import routes
+from prototype.api.openstack import APIRouter as BaseAPIRouter
+from prototype.api import extensions
+from prototype.api.v1 import service as service_v1
+from prototype.api.v1 import rpc_test as rpc_test_v1
 
-class APIMapper(routes.Mapper):
-    """
-    Handle route matching when url is '' because routes.Mapper returns
-    an error in this case.
-    """
 
-    def routematch(self, url=None, environ=None):
-        if url is "":
-            result = self._match("", environ)
-            return result[0], result[1]
-        return routes.Mapper.routematch(self, url, environ)
+class APIRouter(BaseAPIRouter):
+    """Routes requests on the V1 API to the appropriate controller and method."""
 
-class APIRouter(wsgi.Router):
-    """Routes requests on the OpenStack API to the appropriate controller
-    and method.
-    """
+    def __init__(self, ext_mgr=None):
+        if ext_mgr is None:
+            ext_mgr = extensions.ExtensionManager()
+
+        # 调用父类的 __init__ 方法，传入有效的 ext_mgr
+        super(APIRouter, self).__init__(ext_mgr)
+
+    def _setup_routes(self, mapper, ext_mgr):
+        """Setup routes for the v1 API."""
+        # 创建控制器实例
+        service_controller = service_v1.ServiceController()
+        # 创建 RpcTestController 实例
+        rpc_test_controller = rpc_test_v1.RpcTestController()
+
+        # 使用Resource包装控制器，确保正确处理响应
+        from prototype.api.openstack import wsgi as os_wsgi
+        service_resource = os_wsgi.Resource(service_controller)
+        # 为 RpcTestController 创建 Resource
+        rpc_test_resource = os_wsgi.Resource(rpc_test_controller)
+
+        # 注册服务相关路由
+        mapper.connect("/services",
+                       controller=service_resource,
+                       action='index',
+                       conditions={"method": ["GET"]})
+        mapper.connect("/services",
+                       controller=service_resource,
+                       action='create',
+                       conditions={"method": ["POST"]})
+        mapper.connect("/services/{id}",
+                       controller=service_resource,
+                       action='show',
+                       conditions={"method": ["GET"]})
+        mapper.connect("/services/{id}",
+                       controller=service_resource,
+                       action='update',
+                       conditions={"method": ["PUT"]})
+        mapper.connect("/services/{id}",
+                       controller=service_resource,
+                       action='delete',
+                       conditions={"method": ["DELETE"]})
+        mapper.connect("/services/rpc_test",
+                       controller=rpc_test_resource,
+                       action='rpc_test',
+                       conditions={"method": ["GET"]})
+
     @classmethod
     def factory(cls, global_config, **local_config):
+        """Factory method for paste.deploy."""
         return cls()
-
-    def __init__(self):
-        mapper = APIMapper()
-        self._setup_routes(mapper)
-        super(APIRouter, self).__init__(mapper)
-
-    def _setup_routes(self, mapper):
-        controller = manager.create_resource()
-
-        mapper.connect("/",
-                       controller=controller,
-                       action="debug")
-
-        mapper.connect("/debug",
-                       controller=controller,
-                       action='debug1',
-                       conditions={'method': ['GET']})
-                       
-        mapper.connect("/debug",
-                       controller=controller,
-                       action='debug2',
-                       conditions={'method': ['POST']})

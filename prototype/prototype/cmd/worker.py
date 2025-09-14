@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright (c) 2010 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -22,6 +23,8 @@ from oslo_config import cfg
 from prototype import config
 from oslo_log import log as logging
 from prototype.common import service
+from prototype.common import utils
+from prototype.common import rpc
 from prototype import version
 
 CONF = cfg.CONF
@@ -32,6 +35,12 @@ def main():
     logging.register_options(CONF)
     config.parse_args(sys.argv)
     logging.setup(CONF, "prototype")
+    rpc.init(CONF)
+    utils.monkey_patch()
+    # server = service.RPCService.create(topic=CONF.worker_topic)
+    # service.serve(server)
+    # service.wait()
+    launcher = service.process_launcher()
     server = service.RPCService.create(topic=CONF.worker_topic)
-    service.serve(server)
-    service.wait()
+    launcher.launch_service(server)
+    launcher.wait()

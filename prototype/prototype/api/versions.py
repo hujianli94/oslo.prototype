@@ -1,4 +1,6 @@
-# Copyright 2011 OpenStack Foundation
+# coding=utf-8
+# Copyright 2010 OpenStack Foundation
+# Copyright 2015 Clinton Knight
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -13,154 +15,119 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+
 import copy
-import os
 
 from oslo_config import cfg
+from six.moves import http_client
 
-from prototype.api import common
-from prototype.api import wsgi
-
+from prototype.api import extensions
+from prototype.api import openstack
+from prototype.api.openstack import api_version_request
+from prototype.api.openstack import wsgi
+from prototype.api.views import versions as views_versions
 
 CONF = cfg.CONF
 
-VERSIONS = {
+_LINKS = [{
+    "rel": "describedby",
+    "type": "text/html",
+    "href": "https://docs.openstack.org/",
+}]
+
+# 修改KNOWN_VERSIONS以支持v1.0和v2.0
+_KNOWN_VERSIONS = {
     "v1.0": {
         "id": "v1.0",
         "status": "CURRENT",
-        "updated": "2011-01-21T11:33:21Z",
-        "links": [
-            {
-                "rel": "describedby",
-                "type": "text/html",
-                "href": 'http://docs.openstack.org/',
-            },
-        ],
-        "media-types": [
-            {
-                "base": "application/json",
-                "type": "application/vnd.openstack.compute+json;version=1",
-            }
-        ],
+        "version": api_version_request._MAX_API_VERSION,
+        "min_version": api_version_request._MIN_API_VERSION,
+        "updated": api_version_request.UPDATED,
+        "links": _LINKS,
+        "media-types": [{
+            "base": "application/json",
+            "type": "application/vnd.openstack.compute+json;version=1",
+        }]
     },
     "v2.0": {
         "id": "v2.0",
         "status": "EXPERIMENTAL",
-        "updated": "2013-07-23T11:33:21Z",
-        "links": [
-            {
-                "rel": "describedby",
-                "type": "text/html",
-                "href": 'http://docs.openstack.org/',
-            },
-        ],
-        "media-types": [
-            {
-                "base": "application/json",
-                "type": "application/vnd.openstack.compute+json;version=2",
-            }
-        ],
-    }
+        "version": "",
+        "min_version": "",
+        "updated": "2025-10-23T11:33:21Z",
+        "links": _LINKS,
+        "media-types": [{
+            "base": "application/json",
+            "type": "application/vnd.openstack.compute+json;version=2",
+        }]
+    },
 }
 
-def get_view_builder(req):
-    base_url = req.application_url
-    return ViewBuilder(base_url)
+
+class Versions(openstack.APIRouter):
+    """Route versions requests."""
+
+    ExtensionManager = extensions.ExtensionManager
+
+    def _setup_routes(self, mapper, ext_mgr):
+        self.resources['versions'] = create_resource()
+        mapper.connect('versions', '/',
+                       controller=self.resources['versions'],
+                       action='all')
+        mapper.redirect('', '/')
+
+    def _setup_ext_routes(self, mapper, ext_mgr):
+        # NOTE(mriedem): The version router doesn't care about extensions.
+        pass
+
+    # NOTE (jose-castro-leon): Avoid to register extensions
+    # on the versions router, the versions router does not offer
+    # resources to be extended.
+    def _setup_extensions(self, ext_mgr):
+        pass
 
 
-class ViewBuilder(common.ViewBuilder):
+class VersionsController(wsgi.Controller):
 
-    def __init__(self, base_url):
-        """:param base_url: url of the root wsgi application."""
-        self.base_url = base_url
-
-    def build_choices(self, VERSIONS, req):
-        version_objs = []
-        for version in sorted(VERSIONS):
-            version = VERSIONS[version]
-            version_objs.append({
-                "id": version['id'],
-                "status": version['status'],
-                "links": [
-                    {
-                        "rel": "self",
-                        "href": self.generate_href(version['id'], req.path),
-                    },
-                ],
-                "media-types": version['media-types'],
-            })
-
-        return dict(choices=version_objs)
-
-    def build_versions(self, versions):
-        version_objs = []
-        for version in sorted(versions.keys()):
-            version = versions[version]
-            version_objs.append({
-                "id": version['id'],
-                "status": version['status'],
-                "updated": version['updated'],
-                "links": self._build_links(version),
-            })
-
-        return dict(versions=version_objs)
-
-    def build_version(self, version):
-        reval = copy.deepcopy(version)
-        reval['links'].insert(0, {
-            "rel": "self",
-            "href": self.base_url.rstrip('/') + '/',
-        })
-        return dict(version=reval)
-
-    def _build_links(self, version_data):
-        """Generate a container of links that refer to the provided version."""
-        href = self.generate_href(version_data['id'])
-
-        links = [
-            {
-                "rel": "self",
-                "href": href,
-            },
-        ]
-
-        return links
-
-    def generate_href(self, version, path=None):
-        """Create an url that refers to a specific version_number."""
-        prefix = self._update_compute_link_prefix(self.base_url)
-        if version.find('v2.0') == 0:
-            version_number = 'v2.0'
-        else:
-            version_number = 'v1.0'
-
-        if path:
-            path = path.strip('/')
-            return os.path.join(prefix, version_number, path)
-        else:
-            return os.path.join(prefix, version_number) + '/'
-
-class Versions(wsgi.Resource):
     def __init__(self):
-        super(Versions, self).__init__(None)
+        super(VersionsController, self).__init__(None)
 
-    def index(self, req, body=None):
-        """Return all versions."""
-        builder = get_view_builder(req)
-        return builder.build_versions(VERSIONS)
+    # 修改index方法以支持v1.0
+    @wsgi.Controller.api_version('1.0')
+    def index(self, req):  # pylint: disable=E0102
+        """Return versions supported for v1.0."""
+        builder = views_versions.get_view_builder(req)
+        known_versions = copy.deepcopy(_KNOWN_VERSIONS)
+        known_versions.pop('v2.0')
+        return builder.build_versions(known_versions)
 
-    @wsgi.response(300)
-    def multi(self, req, body=None):
-        """Return multiple choices."""
-        builder = get_view_builder(req)
-        return builder.build_choices(VERSIONS, req)
+    # 添加v2.0的支持
+    @index.api_version('2.0')
+    def index(self, req):  # pylint: disable=E0102
+        """Return versions supported for v2.0."""
+        builder = views_versions.get_view_builder(req)
+        known_versions = copy.deepcopy(_KNOWN_VERSIONS)
+        known_versions.pop('v1.0')
+        return builder.build_versions(known_versions)
 
-    def get_action_args(self, request_environment):
-        """Parse dictionary created by routes library."""
-        args = {}
-        if request_environment['PATH_INFO'] == '/':
-            args['action'] = 'index'
-        else:
-            args['action'] = 'multi'
+    # NOTE (cknight): Calling the versions API without
+    # /v1 or /v2 in the URL will lead to this unversioned
+    # method, which should always return info about all
+    # available versions.
+    @wsgi.response(http_client.MULTIPLE_CHOICES)
+    def all(self, req):
+        """Return all known and enabled versions."""
+        builder = views_versions.get_view_builder(req)
+        known_versions = copy.deepcopy(_KNOWN_VERSIONS)
 
-        return args
+        # 根据配置决定启用哪些版本
+        if not CONF.enable_v1_api:
+            known_versions.pop('v1.0', None)
+        if not CONF.enable_v2_api:
+            known_versions.pop('v2.0', None)
+
+        return builder.build_versions(known_versions)
+
+
+def create_resource():
+    return wsgi.Resource(VersionsController())

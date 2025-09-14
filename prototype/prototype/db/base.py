@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -21,7 +22,7 @@ from oslo_utils import importutils
 
 db_driver_opt = cfg.StrOpt('db_driver',
                            default='prototype.db',
-                           help='The driver to use for database access')
+                           help='Driver to use for database access')
 
 CONF = cfg.CONF
 CONF.register_opt(db_driver_opt)
@@ -31,7 +32,12 @@ class Base(object):
     """DB driver is injected in the init method."""
 
     def __init__(self, db_driver=None):
+        # NOTE(mriedem): Without this call, multiple inheritance involving
+        # the db Base class does not work correctly.
         super(Base, self).__init__()
         if not db_driver:
             db_driver = CONF.db_driver
-        self.db = importutils.import_module(db_driver)
+        self.db = importutils.import_module(db_driver)  # pylint: disable=C0103
+        # 修复：检查db模块是否有dispose_engine方法，如果没有则不调用
+        if hasattr(self.db, 'dispose_engine') and callable(getattr(self.db, 'dispose_engine')):
+            self.db.dispose_engine()

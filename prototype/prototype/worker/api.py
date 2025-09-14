@@ -10,5 +10,3 @@ class API(base.Base):
 
     def __init__(self, **kwargs):
         super(API, self).__init__(**kwargs)
-
-

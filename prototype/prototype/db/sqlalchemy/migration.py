@@ -74,6 +74,7 @@ def db_version():
 def db_initial_version():
     return INIT_VERSION
 
+
 def db_version_control(version=None):
     repository = _find_migrate_repo()
     versioning_api.version_control(get_engine(), repository, version)

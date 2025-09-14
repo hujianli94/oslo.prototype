@@ -1,4 +1,6 @@
-# Copyright 2010 OpenStack Foundation
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
+# Copyright 2010 OpenStack LLC.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -13,70 +15,18 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import collections
-import functools
-import itertools
 import os
 import re
+import urlparse
+
+import webob
 
 from oslo_config import cfg
-import six.moves.urllib.parse as urlparse
-import webob
-from webob import exc
-
-from prototype.common.i18n import _,_LE,_LW
 from oslo_log import log as logging
-
-osapi_opts = [
-    cfg.IntOpt('osapi_max_limit', default=1000, help='The maximum number of items returned in a single response from a collection resource'),
-]
-CONF = cfg.CONF
-CONF.register_opts(osapi_opts)
+from prototype.common.i18n import _
 
 LOG = logging.getLogger(__name__)
-
-
-# NOTE(cyeoh): A common regexp for acceptable names (user supplied)
-# that we want all new extensions to conform to unless there is a very
-# good reason not to.
-VALID_NAME_REGEX = re.compile("^(?! )[\w. _-]+(?<! )$", re.UNICODE)
-
-XML_NS_V11 = 'http://docs.openstack.org/compute/api/v1.1'
-
-
-
-
-def get_sort_params(input_params, default_key='created_at',
-                    default_dir='desc'):
-    """Retrieves sort keys/directions parameters.
-
-    Processes the parameters to create a list of sort keys and sort directions
-    that correspond to the 'sort_key' and 'sort_dir' parameter values. These
-    sorting parameters can be specified multiple times in order to generate
-    the list of sort keys and directions.
-
-    The input parameters are not modified.
-
-    :param input_params: webob.multidict of request parameters (from
-                         prototype.wsgi.Request.params)
-    :param default_key: default sort key value, added to the list if no
-                        'sort_key' parameters are supplied
-    :param default_dir: default sort dir value, added to the list if no
-                        'sort_dir' parameters are supplied
-    :returns: list of sort keys, list of sort dirs
-    """
-    params = input_params.copy()
-    sort_keys = []
-    sort_dirs = []
-    while 'sort_key' in params:
-        sort_keys.append(params.pop('sort_key').strip())
-    while 'sort_dir' in params:
-        sort_dirs.append(params.pop('sort_dir').strip())
-    if len(sort_keys) == 0 and default_key:
-        sort_keys.append(default_key)
-    if len(sort_dirs) == 0 and default_dir:
-        sort_dirs.append(default_dir)
-    return sort_keys, sort_dirs
+CFG = cfg.CONF
 
 
 def get_pagination_params(request):
@@ -93,33 +43,31 @@ def get_pagination_params(request):
     """
     params = {}
     if 'limit' in request.GET:
-        params['limit'] = _get_int_param(request, 'limit')
-    if 'page_size' in request.GET:
-        params['page_size'] = _get_int_param(request, 'page_size')
+        params['limit'] = _get_limit_param(request)
     if 'marker' in request.GET:
         params['marker'] = _get_marker_param(request)
     return params
 
 
-def _get_int_param(request, param):
-    """Extract integer param from request or fail."""
+def _get_limit_param(request):
+    """Extract integer limit from request or fail"""
     try:
-        int_param = int(request.GET[param])
+        limit = int(request.GET['limit'])
     except ValueError:
-        msg = _('%s param must be an integer') % param
+        msg = _('limit param must be an integer')
         raise webob.exc.HTTPBadRequest(explanation=msg)
-    if int_param < 0:
-        msg = _('%s param must be positive') % param
+    if limit < 0:
+        msg = _('limit param must be positive')
         raise webob.exc.HTTPBadRequest(explanation=msg)
-    return int_param
+    return limit
 
 
 def _get_marker_param(request):
-    """Extract marker id from request or fail."""
+    """Extract marker id from request or fail"""
     return request.GET['marker']
 
 
-def limited(items, request, max_limit=CONF.osapi_max_limit):
+def limited(items, request, max_limit=CFG.osapi_max_limit):
     """Return a slice of items according to requested offset and limit.
 
     :param items: A sliceable entity
@@ -156,27 +104,30 @@ def limited(items, request, max_limit=CONF.osapi_max_limit):
     return items[offset:range_end]
 
 
-def get_limit_and_marker(request, max_limit=CONF.osapi_max_limit):
-    """get limited parameter from request."""
+def limited_by_marker(items, request, max_limit=CFG.osapi_max_limit):
+    """Return a slice of items according to the requested marker and limit."""
     params = get_pagination_params(request)
+
     limit = params.get('limit', max_limit)
-    limit = min(max_limit, limit)
     marker = params.get('marker')
 
-    return limit, marker
-
-
-def get_id_from_href(href):
-    """Return the id or uuid portion of a url.
-
-    Given: 'http://www.foo.com/bar/123?q=4'
-    Returns: '123'
-
-    Given: 'http://www.foo.com/bar/abc123?q=4'
-    Returns: 'abc123'
-
-    """
-    return urlparse.urlsplit("%s" % href).path.split('/')[-1]
+    limit = min(max_limit, limit)
+    start_index = 0
+    if marker:
+        start_index = -1
+        for i, item in enumerate(items):
+            if 'flavorid' in item:
+                if item['flavorid'] == marker:
+                    start_index = i + 1
+                    break
+            elif item['id'] == marker or item.get('uuid') == marker:
+                start_index = i + 1
+                break
+        if start_index < 0:
+            msg = _('marker [%s] not found') % marker
+            raise webob.exc.HTTPBadRequest(explanation=msg)
+    range_end = start_index + limit
+    return items[start_index:range_end]
 
 
 def remove_version_from_href(href):
@@ -200,8 +151,9 @@ def remove_version_from_href(href):
     new_path = '/'.join(url_parts)
 
     if new_path == parsed_url.path:
-        LOG.debug('href %s does not contain version' % href)
-        raise ValueError(_('href %s does not contain version') % href)
+        msg = _('href %s does not contain version') % href
+        LOG.debug(msg)
+        raise ValueError(msg)
 
     parsed_url = list(parsed_url)
     parsed_url[2] = new_path
@@ -221,83 +173,57 @@ def dict_to_query_str(params):
 class ViewBuilder(object):
     """Model API responses as dictionaries."""
 
-    def _get_project_id(self, request):
-        """Get project id from request url if present or empty string
-        otherwise
-        """
-        project_id = request.environ["prototype.context"].project_id
-        if project_id in request.url:
-            return project_id
-        return ''
+    _collection_name = None
 
-    def _get_links(self, request, identifier, collection_name):
-        return [{
-            "rel": "self",
-            "href": self._get_href_link(request, identifier, collection_name),
-        },
-        {
-            "rel": "bookmark",
-            "href": self._get_bookmark_link(request,
-                                            identifier,
-                                            collection_name),
-        }]
+    def _get_links(self, request, identifier):
+        return [{"rel": "self",
+                 "href": self._get_href_link(request, identifier), },
+                {"rel": "bookmark",
+                 "href": self._get_bookmark_link(request, identifier), }]
 
-    def _get_next_link(self, request, identifier, collection_name):
+    def _get_next_link(self, request, identifier):
         """Return href string with proper limit and marker params."""
         params = request.params.copy()
         params["marker"] = identifier
-        prefix = self._update_compute_link_prefix(request.application_url)
+        prefix = self._update_link_prefix(request.application_url,
+                                          CFG.osapi_servicemanage_base_URL)
         url = os.path.join(prefix,
-                           self._get_project_id(request),
-                           collection_name)
+                           request.environ["prototype.context"].project_id,
+                           self._collection_name)
         return "%s?%s" % (url, dict_to_query_str(params))
 
-    def _get_href_link(self, request, identifier, collection_name):
+    def _get_href_link(self, request, identifier):
         """Return an href string pointing to this object."""
-        prefix = self._update_compute_link_prefix(request.application_url)
+        prefix = self._update_link_prefix(request.application_url,
+                                          CFG.osapi_servicemanage_base_URL)
         return os.path.join(prefix,
-                            self._get_project_id(request),
-                            collection_name,
+                            request.environ["prototype.context"].project_id,
+                            self._collection_name,
                             str(identifier))
 
-    def _get_bookmark_link(self, request, identifier, collection_name):
+    def _get_bookmark_link(self, request, identifier):
         """Create a URL that refers to a specific resource."""
         base_url = remove_version_from_href(request.application_url)
-        base_url = self._update_compute_link_prefix(base_url)
+        base_url = self._update_link_prefix(base_url,
+                                            CFG.osapi_servicemanage_base_URL)
         return os.path.join(base_url,
-                            self._get_project_id(request),
-                            collection_name,
+                            request.environ["prototype.context"].project_id,
+                            self._collection_name,
                             str(identifier))
 
-    def _get_collection_links(self,
-                              request,
-                              items,
-                              collection_name,
-                              id_key="uuid"):
-        """Retrieve 'next' link, if applicable. This is included if:
-        1) 'limit' param is specified and equals the number of items.
-        2) 'limit' param is specified but it exceeds CONF.osapi_max_limit,
-        in this case the number of items is CONF.osapi_max_limit.
-        3) 'limit' param is NOT specified but the number of items is
-        CONF.osapi_max_limit.
-        """
+    def _get_collection_links(self, request, items, id_key="uuid"):
+        """Retrieve 'next' link, if applicable."""
         links = []
-        max_items = min(
-            int(request.params.get("limit", CONF.osapi_max_limit)),
-            CONF.osapi_max_limit)
-        if max_items and max_items == len(items):
+        limit = int(request.params.get("limit", 0))
+        if limit and limit == len(items):
             last_item = items[-1]
             if id_key in last_item:
                 last_item_id = last_item[id_key]
-            elif 'id' in last_item:
-                last_item_id = last_item["id"]
             else:
-                last_item_id = last_item["flavorid"]
+                last_item_id = last_item["id"]
             links.append({
                 "rel": "next",
-                "href": self._get_next_link(request,
-                                            last_item_id,
-                                            collection_name),
+                "href": self._get_next_link(request, last_item_id),
             })
         return links
 
@@ -307,24 +233,4 @@ class ViewBuilder(object):
         url_parts = list(urlparse.urlsplit(orig_url))
         prefix_parts = list(urlparse.urlsplit(prefix))
         url_parts[0:2] = prefix_parts[0:2]
-        url_parts[2] = prefix_parts[2] + url_parts[2]
-        return urlparse.urlunsplit(url_parts).rstrip('/')
-
-    def _update_glance_link_prefix(self, orig_url):
-        return self._update_link_prefix(orig_url,
-                                        CONF.osapi_glance_link_prefix)
-
-    def _update_compute_link_prefix(self, orig_url):
-        return self._update_link_prefix(orig_url,
-                                        CONF.osapi_compute_link_prefix)
-
-
-
-def check_cells_enabled(function):
-    @functools.wraps(function)
-    def inner(*args, **kwargs):
-        if not CONF.cells.enable:
-            msg = _("Cells is not enabled.")
-            raise webob.exc.HTTPNotImplemented(explanation=msg)
-        return function(*args, **kwargs)
-    return inner
+        return urlparse.urlunsplit(url_parts)

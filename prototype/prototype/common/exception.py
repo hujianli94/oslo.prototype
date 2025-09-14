@@ -61,9 +61,70 @@ class PrototypeException(Exception):
         return self.args[0]
 
 
-class NotFound(PrototypeException):
-    msg_fmt = _("Resource could not be found.")
-    code = 404
+class ProgrammingError(PrototypeException):
+    message = _('Programming error in Prototype: %(reason)s')
+
+
+class NotAuthorized(PrototypeException):
+    message = _("Not authorized.")
+    code = 403
+
+
+class AdminRequired(NotAuthorized):
+    message = _("User does not have admin privileges")
+
+
+class PolicyNotAuthorized(NotAuthorized):
+    message = _("Policy doesn't allow %(action)s to be performed.")
+
+
+class Invalid(PrototypeException):
+    message = _("Unacceptable parameters.")
+    code = 400
+
+
+class InvalidResults(Invalid):
+    message = _("The results are invalid.")
+
+
+class InvalidInput(Invalid):
+    message = _("Invalid input received: %(reason)s")
+
+
+class InvalidContentType(Invalid):
+    message = _("Invalid content type %(content_type)s.")
+
+
+class InvalidHost(Invalid):
+    message = _("Invalid host: %(reason)s")
+
+
+class InvalidParameterValue(Invalid):
+    message = "%(err)s"
+
+
+class InvalidConfigurationValue(Invalid):
+    message = _('Value "%(value)s" is not valid for '
+                'configuration option "%(option)s"')
+
+
+class ServiceUnavailable(Invalid):
+    message = _("Service is unavailable at this time.")
+
+
+class InvalidAPIVersionString(Invalid):
+    message = _("API Version String %(version)s is of invalid format. Must "
+                "be of format MajorNum.MinorNum.")
+
+
+class VersionNotFoundForAPIMethod(Invalid):
+    message = _("API version %(version)s is not supported on this method.")
+
+
+class ValidationError(Invalid):
+    message = "%(detail)s"
+
+    safe = True
 
 
 class Invalid(PrototypeException):
@@ -73,3 +134,117 @@ class Invalid(PrototypeException):
 
 class InvalidInput(Invalid):
     msg_fmt = _("Invalid input received: %(reason)s")
+
+
+class NotFound(PrototypeException):
+    message = _("Resource could not be found.")
+    code = 404
+
+
+class MessageNotFound(NotFound):
+    message = _("Message %(message_id)s could not be found.")
+
+
+class ServerNotFound(NotFound):
+    message = _("Instance %(uuid)s could not be found.")
+
+
+class ServiceNotFound(NotFound):
+
+    def __init__(self, message=None, **kwargs):
+        if not message:
+            if kwargs.get('host', None):
+                self.message = _("Service %(service_id)s could not be "
+                                 "found on host %(host)s.")
+            else:
+                self.message = _("Service %(service_id)s could not be found.")
+        super(ServiceNotFound, self).__init__(message, **kwargs)
+
+
+class WorkerNotFound(NotFound):
+    message = _("Worker with %s could not be found.")
+
+    def __init__(self, message=None, **kwargs):
+        keys_list = ('{0}=%({0})s'.format(key) for key in kwargs)
+        placeholder = ', '.join(keys_list)
+        self.message = self.message % placeholder
+        super(WorkerNotFound, self).__init__(message, **kwargs)
+
+
+class HostNotFound(NotFound):
+    message = _("Host %(host)s could not be found.")
+
+
+class HostBinaryNotFound(NotFound):
+    message = _("Could not find binary %(binary)s on host %(host)s.")
+
+
+class PrototypeHostNotFound(NotFound):
+    message = _("Prototype host %(host)s could not be found.")
+
+
+class PrototypeServiceNotFound(NotFound):
+    message = _("Prototype service %(service)s could not be found.")
+
+
+class SchedulerHostFilterNotFound(NotFound):
+    message = _("Scheduler Host Filter %(filter_name)s could not be found.")
+
+
+class SchedulerHostWeigherNotFound(NotFound):
+    message = _("Scheduler Host Weigher %(weigher_name)s could not be found.")
+
+
+class FileNotFound(NotFound):
+    message = _("File %(file_path)s could not be found.")
+
+
+class InvalidName(Invalid):
+    message = _("An invalid 'name' value was provided. %(reason)s")
+
+
+class InvalidGlobalAPIVersion(Invalid):
+    message = _("Invalid global API version %(version)s.")
+
+
+class SSHInjectionThreat(PrototypeException):
+    message = _("SSH command injection detected: %(command)s")
+
+
+class PasteAppNotFound(NotFound):
+    message = _("Paste app %(app_name)s could not be found.")
+
+
+class ConfigNotFound(NotFound):
+    message = _("Could not find config at %(path)s")
+
+
+class Duplicate(PrototypeException):
+    message = _("Resource already exists.")
+
+
+class WorkerExists(Duplicate):
+    message = _("Worker for %(type)s %(id)s already exists.")
+
+
+class APIException(PrototypeException):
+    message = _("Error while requesting %(service)s API.")
+
+    def __init__(self, message=None, **kwargs):
+        if 'service' not in kwargs:
+            kwargs['service'] = 'unknown'
+        super(APIException, self).__init__(message, **kwargs)
+
+
+class APITimeout(APIException):
+    message = _("Timeout while requesting %(service)s API.")
+
+
+class MalformedRequestBody(PrototypeException):
+    message = _("Malformed message body: %(reason)s")
+
+
+class RPCTimeout(PrototypeException):
+    message = _("Timeout while requesting capabilities from backend "
+                "%(service)s.")
+    code = 502

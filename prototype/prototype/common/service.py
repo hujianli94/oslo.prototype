@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # Copyright 2011 Justin Santa Barbara
@@ -23,25 +24,21 @@ import sys
 
 from oslo_config import cfg
 import oslo_messaging as messaging
-from oslo_utils import importutils
-from oslo_concurrency import processutils
 from oslo_service import service
+from oslo_service import threadgroup
+from oslo_service import periodic_task
+from oslo_utils import importutils, timeutils
+from oslo_concurrency import processutils
+
 from prototype import db
 from oslo_context import context
 from prototype.common import exception
 from prototype.common.i18n import _, _LE, _LW
 from oslo_log import log as logging
-from prototype.openstack.common import service
 from prototype.common import rpc
 from prototype.common import utils
 from prototype import version
 from prototype.common import wsgi
-
-from oslo_config import cfg
-
-from prototype.db import base
-from oslo_log import log as logging
-from prototype.openstack.common import periodic_task
 
 LOG = logging.getLogger(__name__)
 
@@ -68,6 +65,8 @@ service_opts = [
                help='The IP address on which the OpenStack API will listen.'),
     cfg.IntOpt('api_listen_port',
                default=8000,
+               min=1,
+               max=65535,
                help='The port on which the OpenStack API will listen.'),
     cfg.IntOpt('api_workers',
                help='Number of workers for OpenStack API service. The default '
@@ -86,27 +85,61 @@ CONF.import_opt('host', 'prototype.config')
 
 
 class ServiceBase(object):
-    def __init__(self, host, type, topic, *args, **kwargs):
+    def __init__(self, host, type, topic, binary=None, *args, **kwargs):
         self.host = host
         self.type = type
         self.topic = topic
+        self.binary = binary or os.path.basename(sys.argv[0])
         self.model = None
         self.context = context.get_admin_context()
-        svcs = db.service_list(self.context, host=self.host, type=self.type, topic=self.topic)
-        for svc in svcs:
-            self.model = svc
-            db.service_update(self.context, svc.id, svc)
-            break
-        if self.model == None:
-            svc = {'host': self.host, 'type': self.type, 'topic': self.topic}
+
+        # 查找现有的服务记录
+        svcs = db.service_get_all_by_host_and_topic(self.context, host=self.host, topic=self.topic)
+        if not svcs:
+            svc = {
+                'host': self.host,
+                'type': self.type,
+                'topic': self.topic,
+                'binary': self.binary,
+                'report_count': 0,
+                'availability_zone': CONF.storage_availability_zone or 'prototype'
+            }
             self.model = db.service_create(self.context, svc)
-        LOG.error("init ServiceInfo")
+        else:
+            self.model = svcs[0]
+            # 服务启动时立即上报一次 同步服务状态到数据库
+            self.sync()
+        LOG.info("Service initialized: host=%(host)s, type=%(type)s, topic=%(topic)s, binary=%(binary)s",
+                 {'host': self.host, 'type': self.type, 'topic': self.topic, 'binary': self.binary})
 
-    def sync(self, context):
-        pass
+    def sync(self):
+        """同步服务状态到数据库，包括累加上报次数"""
+        try:
+            if self.model:
+                current_model = db.service_get(self.context, self.model['id'])
+                new_report_count = current_model['report_count'] + 1
+                updated_values = {
+                    'updated_at': timeutils.utcnow(),  # 更新时间戳
+                    'binary': self.binary,  # 确保 binary 也同步（虽然通常不变）
+                    'report_count': new_report_count  # 更新上报次数
+                }
+
+                self.model = db.service_update(self.context, self.model['id'], updated_values)
+
+                LOG.info(
+                    "Service sync completed for %(host)s:%(topic)s, report_count incremented to: %(report_count)s, binary: %(binary)s",
+                    {'host': self.host, 'topic': self.topic,
+                     'report_count': new_report_count,  # 使用新计算的值记录日志
+                     'binary': self.binary})
+        except exception.PrototypeException:
+            LOG.exception("PrototypeException during service sync for %(host)s:%(topic)s",
+                          {'host': self.host, 'topic': self.topic})
+        except Exception:
+            LOG.exception("Failed to sync service state for %(host)s:%(topic)s",
+                          {'host': self.host, 'topic': self.topic})
 
 
-class Manager(base.Base, periodic_task.PeriodicTasks):
+class Manager(periodic_task.PeriodicTasks):
 
     def __init__(self, host=None, db_driver=None, service_name='undefined'):
         if not host:
@@ -115,7 +148,7 @@ class Manager(base.Base, periodic_task.PeriodicTasks):
         self.backdoor_port = None
         self.service_name = service_name
         self.additional_endpoints = []
-        super(Manager, self).__init__(db_driver)
+        super(Manager, self).__init__(CONF)
 
     def periodic_tasks(self, context, raise_on_error=False):
         """Tasks to be run at a periodic interval."""
@@ -172,6 +205,7 @@ class RPCService(service.Service):
         super(RPCService, self).__init__()
         self.host = host
         self.topic = topic
+        self.binary = os.path.basename(sys.argv[0])
         self.base = ServiceBase(host, 'rpc', topic)
         self.manager_class_name = manager
         manager_class = importutils.import_class(self.manager_class_name)
@@ -186,8 +220,8 @@ class RPCService(service.Service):
 
     def start(self):
         verstr = version.version_string_with_package()
-        LOG.debug(_('Starting %(topic)s node (version %(version)s)'),
-                  {'topic': self.topic, 'version': verstr})
+        # LOG.debug(_('Starting %(topic)s node (version %(version)s)'), {'topic': self.topic, 'version': verstr})
+        LOG.info(_('Starting %(topic)s node (version %(version)s)'), {'topic': self.topic, 'version': verstr})
         self.basic_config_check()
         self.manager.init_host()
         self.model_disconnected = False
@@ -218,9 +252,10 @@ class RPCService(service.Service):
             else:
                 initial_delay = None
 
-            self.tg.add_dynamic_timer(self.periodic_tasks,
-                                      initial_delay=initial_delay,
-                                      periodic_interval_max=self.periodic_interval_max)
+            # 使用 oslo.service 的 threadgroup
+            self.tg.add_timer(self.report_interval,
+                              self.periodic_tasks,
+                              initial_delay=initial_delay)
 
     def __getattr__(self, key):
         manager = self.__dict__.get('manager', None)
@@ -305,7 +340,7 @@ class RPCService(service.Service):
             sys.exit(1)
 
 
-class WSGIService(object):
+class WSGIService(service.Service):
     """Provides ability to launch API from a 'paste' configuration."""
 
     def __init__(self, name, loader=None, use_ssl=False, max_url_len=None):
@@ -316,8 +351,10 @@ class WSGIService(object):
         :returns: None
 
         """
-        self.base = ServiceBase(CONF.host, 'wsgi', name)
+        super(WSGIService, self).__init__()
         self.name = name
+        self.binary = os.path.basename(sys.argv[0])
+        self.base = ServiceBase(CONF.host, 'wsgi', name)
         self.manager = self._get_manager()
         self.loader = loader or wsgi.Loader()
         self.app = self.loader.load_app(name)
@@ -341,9 +378,7 @@ class WSGIService(object):
         self.server = wsgi.Server(name,
                                   self.app,
                                   host=self.host,
-                                  port=self.port,
-                                  use_ssl=self.use_ssl,
-                                  max_url_len=max_url_len)
+                                  port=self.port)
         # Pull back actual port used
         self.port = self.server.port
         self.backdoor_port = None
@@ -413,7 +448,7 @@ class WSGIService(object):
 
 
 def process_launcher():
-    return service.ProcessLauncher()
+    return service.ProcessLauncher(CONF)
 
 
 # NOTE(vish): the global launcher is to maintain the existing
@@ -427,8 +462,12 @@ def serve(server, workers=None):
     if _launcher:
         raise RuntimeError(_('serve() can only be called once'))
 
-    _launcher = service.launch(server, workers=workers)
+    _launcher = service.launch(CONF, server, workers=workers)
 
 
 def wait():
-    _launcher.wait()
+    try:
+        _launcher.wait()
+    except KeyboardInterrupt:
+        _launcher.stop()
+    rpc.cleanup()

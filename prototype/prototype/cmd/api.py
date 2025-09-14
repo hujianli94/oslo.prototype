@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2010 United States Government as represented by the
 # Administrator of the National Aeronautics and Space Administration.
 # All Rights Reserved.
@@ -14,10 +15,8 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-"""Starter script for Prototype API.
-
-Starts both the EC2 and OpenStack APIs in separate greenthreads.
-
+"""
+Starter script for Prototype API.
 """
 
 import sys
@@ -28,21 +27,21 @@ from prototype import config
 from oslo_log import log as logging
 from prototype.common import service
 from prototype.common import utils
+from prototype.common import rpc
 from prototype import version
 
 CONF = cfg.CONF
-CONF.import_opt('enabled_apis', 'prototype.service')
-CONF.import_opt('enabled_ssl_apis', 'prototype.service')
+CONF.import_opt('enabled_apis', 'prototype.common.service')
+CONF.import_opt('enabled_ssl_apis', 'prototype.common.service')
 
 
 def main():
     logging.register_options(CONF)
     config.parse_args(sys.argv)
     logging.setup(CONF, "prototype")
-    
+    rpc.init(CONF)
     utils.monkey_patch()
-
-
+    # 创建一个进程启动器
     launcher = service.process_launcher()
     for api in CONF.enabled_apis:
         should_use_ssl = api in CONF.enabled_ssl_apis

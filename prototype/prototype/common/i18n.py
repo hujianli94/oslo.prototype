@@ -37,7 +37,11 @@ _LE = _translators.log_error
 _LC = _translators.log_critical
 
 
-def translate(value, user_locale):
+def enable_lazy(enable=True):
+    return i18n.enable_lazy(enable)
+
+
+def translate(value, user_locale=None):
     return i18n.translate(value, user_locale)
 
 

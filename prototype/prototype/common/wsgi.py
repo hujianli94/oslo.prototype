@@ -19,52 +19,59 @@
 
 from __future__ import print_function
 
-import os.path
+import errno
+import os
 import socket
 import ssl
 import sys
+import time
 
 import eventlet
 import eventlet.wsgi
 import greenlet
 from oslo_config import cfg
-from oslo_utils import excutils
 from paste import deploy
 import routes.middleware
 import webob.dec
 import webob.exc
 
 from prototype.common import exception
-from prototype.common.i18n import _, _LE, _LI
+from prototype.common import utils
+from prototype.common.i18n import _
+from oslo_utils import excutils
 from oslo_log import log as logging
-from oslo_log import loggers
+from oslo_utils import netutils
 
-
-wsgi_opts = [
-    cfg.StrOpt('api_paste_config',
-               default="api-paste.ini",
-               help='File name for the paste.deploy config for prototype-api'),
-    cfg.StrOpt('wsgi_log_format',
-            default='%(client_ip)s "%(request_line)s" status: %(status_code)s'
-                    ' len: %(body_length)s time: %(wall_seconds).7f',
-            help='A python format string that is used as the template to '
-                 'generate log lines. The following values can be formatted '
-                 'into it: client_ip, date_time, request_line, status_code, '
-                 'body_length, wall_seconds.'),
-    cfg.StrOpt('ssl_ca_file',
-               help="CA certificate file to use to verify "
-                    "connecting clients"),
-    cfg.StrOpt('ssl_cert_file',
-                    help="SSL certificate of API server"),
-    cfg.StrOpt('ssl_key_file',
-                    help="SSL private key of API server"),
+socket_opts = [
+    cfg.BoolOpt('tcp_keepalive',
+                default=True,
+                help="Sets the value of TCP_KEEPALIVE (True/False) for each "
+                     "server socket."),
     cfg.IntOpt('tcp_keepidle',
                default=600,
                help="Sets the value of TCP_KEEPIDLE in seconds for each "
                     "server socket. Not supported on OS X."),
-    cfg.IntOpt('wsgi_default_pool_size',
-               default=1000,
-               help="Size of the pool of greenthreads used by wsgi"),
+    cfg.IntOpt('tcp_keepalive_interval',
+               help="Sets the value of TCP_KEEPINTVL in seconds for each "
+                    "server socket. Not supported on OS X."),
+    cfg.IntOpt('tcp_keepalive_count',
+               help="Sets the value of TCP_KEEPCNT for each "
+                    "server socket. Not supported on OS X."),
+    cfg.StrOpt('ssl_ca_file',
+               default=None,
+               help="CA certificate file to use to verify "
+                    "connecting clients"),
+    cfg.StrOpt('ssl_cert_file',
+               default=None,
+               help="Certificate file to use when starting "
+                    "the server securely"),
+    cfg.StrOpt('ssl_key_file',
+               default=None,
+               help="Private key file to use when starting "
+                    "the server securely"),
+]
+
+eventlet_opts = [
     cfg.IntOpt('max_header_line',
                default=16384,
                help="Maximum line size of message headers to be accepted. "
@@ -73,16 +80,19 @@ wsgi_opts = [
                     "Keystone v3 API with big service catalogs)."),
     cfg.BoolOpt('wsgi_keep_alive',
                 default=True,
-                help="If False, closes the client socket connection "
-                     "explicitly."),
-    cfg.IntOpt('client_socket_timeout', default=900,
-               help="Timeout for client connections' socket operations. "
+                help='If False, closes the client socket connection '
+                     'explicitly. Setting it to True to maintain backward '
+                     'compatibility. Recommended setting is set it to False.'),
+    cfg.IntOpt('client_socket_timeout', default=0,
+               help="Timeout for client connections\' socket operations. "
                     "If an incoming connection is idle for this number of "
-                    "seconds it will be closed. A value of '0' means "
+                    "seconds it will be closed. A value of \'0\' means "
                     "wait forever."),
-    ]
+]
+
 CONF = cfg.CONF
-CONF.register_opts(wsgi_opts)
+CONF.register_opts(socket_opts)
+CONF.register_opts(eventlet_opts)
 
 LOG = logging.getLogger(__name__)
 
@@ -90,11 +100,10 @@ LOG = logging.getLogger(__name__)
 class Server(object):
     """Server class to manage a WSGI server, serving a WSGI application."""
 
-    default_pool_size = CONF.wsgi_default_pool_size
+    default_pool_size = 1000
 
-    def __init__(self, name, app, host='0.0.0.0', port=0, pool_size=None,
-                       protocol=eventlet.wsgi.HttpProtocol, backlog=128,
-                       use_ssl=False, max_url_len=None):
+    def __init__(self, name, app, host=None, port=None, pool_size=None,
+                 protocol=eventlet.wsgi.HttpProtocol, backlog=128):
         """Initialize, but do not start, a WSGI server.
 
         :param name: Pretty name for logging.
@@ -102,33 +111,32 @@ class Server(object):
         :param host: IP address to serve the application.
         :param port: Port number to server the application.
         :param pool_size: Maximum number of eventlets to spawn concurrently.
-        :param backlog: Maximum number of queued connections.
-        :param max_url_len: Maximum length of permitted URLs.
         :returns: None
-        :raises: prototype.exception.InvalidInput
+
         """
         # Allow operators to customize http requests max header line size.
         eventlet.wsgi.MAX_HEADER_LINE = CONF.max_header_line
+        self.client_socket_timeout = CONF.client_socket_timeout or None
         self.name = name
         self.app = app
+        self._host = host or "0.0.0.0"
+        self._port = port or 0
         self._server = None
+        self._socket = None
         self._protocol = protocol
         self.pool_size = pool_size or self.default_pool_size
         self._pool = eventlet.GreenPool(self.pool_size)
-        self._logger = logging.getLogger("prototype.%s.wsgi.server" % self.name)
-        self._wsgi_logger = loggers.WritableLogger(self._logger)
-        self._use_ssl = use_ssl
-        self._max_url_len = max_url_len
-        self.client_socket_timeout = CONF.client_socket_timeout or None
+        self._logger = logging.getLogger("eventlet.wsgi.server")
+        self._wsgi_logger = self._logger
 
         if backlog < 1:
             raise exception.InvalidInput(
-                    reason='The backlog must be more than 1')
+                reason='The backlog must be more than 1')
 
         bind_addr = (host, port)
         # TODO(dims): eventlet's green dns/socket module does not actually
         # support IPv6 in getaddrinfo(). We need to get around this in the
-        # future or monitor upstream for a fix
+        # future or prototype upstream for a fix
         try:
             info = socket.getaddrinfo(bind_addr[0],
                                       bind_addr[1],
@@ -139,21 +147,53 @@ class Server(object):
         except Exception:
             family = socket.AF_INET
 
-        try:
-            self._socket = eventlet.listen(bind_addr, family, backlog=backlog)
-        except EnvironmentError:
-            LOG.error(_LE("Could not bind to %(host)s:%(port)s"),
-                      {'host': host, 'port': port})
-            raise
+        cert_file = CONF.ssl_cert_file
+        key_file = CONF.ssl_key_file
+        ca_file = CONF.ssl_ca_file
+        self._use_ssl = cert_file or key_file
 
-        (self.host, self.port) = self._socket.getsockname()[0:2]
-        LOG.info(_LI("%(name)s listening on %(host)s:%(port)s"),
-                 {'name': self.name, 'host': self.host, 'port': self.port})
+        if cert_file and not os.path.exists(cert_file):
+            raise RuntimeError(_("Unable to find cert_file : %s")
+                               % cert_file)
+
+        if ca_file and not os.path.exists(ca_file):
+            raise RuntimeError(_("Unable to find ca_file : %s") % ca_file)
+
+        if key_file and not os.path.exists(key_file):
+            raise RuntimeError(_("Unable to find key_file : %s")
+                               % key_file)
+
+        if self._use_ssl and (not cert_file or not key_file):
+            raise RuntimeError(_("When running server in SSL mode, you "
+                                 "must specify both a cert_file and "
+                                 "key_file option value in your "
+                                 "configuration file."))
+
+        retry_until = time.time() + 30
+        while not self._socket and time.time() < retry_until:
+            try:
+                self._socket = eventlet.listen(bind_addr, backlog=backlog,
+                                               family=family)
+            except socket.error as err:
+                if err.args[0] != errno.EADDRINUSE:
+                    raise
+                eventlet.sleep(0.1)
+
+        if not self._socket:
+            raise RuntimeError(_("Could not bind to %(host)s:%(port)s "
+                                 "after trying for 30 seconds") %
+                               {'host': host, 'port': port})
+
+        (self._host, self._port) = self._socket.getsockname()[0:2]
+        LOG.info(_("%(name)s listening on %(_host)s:%(_port)s") %
+                 {'name': self.name, '_host': self._host, '_port': self._port})
 
     def start(self):
         """Start serving a WSGI application.
 
         :returns: None
+        :raises: cinder.exception.InvalidInput
+
         """
         # The server socket object will be closed after server exits,
         # but the underlying file descriptor will remain open, and will
@@ -163,58 +203,35 @@ class Server(object):
         dup_socket = self._socket.dup()
         dup_socket.setsockopt(socket.SOL_SOCKET,
                               socket.SO_REUSEADDR, 1)
-        # sockets can hang around forever without keepalive
-        dup_socket.setsockopt(socket.SOL_SOCKET,
-                              socket.SO_KEEPALIVE, 1)
 
-        # This option isn't available in the OS X version of eventlet
-        if hasattr(socket, 'TCP_KEEPIDLE'):
-            dup_socket.setsockopt(socket.IPPROTO_TCP,
-                                  socket.TCP_KEEPIDLE,
-                                  CONF.tcp_keepidle)
+        # NOTE(praneshp): Call set_tcp_keepalive in oslo to set
+        # tcp keepalive parameters. Sockets can hang around forever
+        # without keepalive
+        netutils.set_tcp_keepalive(dup_socket,
+                                   CONF.tcp_keepalive,
+                                   CONF.tcp_keepidle,
+                                   CONF.tcp_keepalive_count,
+                                   CONF.tcp_keepalive_interval)
 
         if self._use_ssl:
             try:
-                ca_file = CONF.ssl_ca_file
-                cert_file = CONF.ssl_cert_file
-                key_file = CONF.ssl_key_file
-
-                if cert_file and not os.path.exists(cert_file):
-                    raise RuntimeError(
-                          _("Unable to find cert_file : %s") % cert_file)
-
-                if ca_file and not os.path.exists(ca_file):
-                    raise RuntimeError(
-                          _("Unable to find ca_file : %s") % ca_file)
-
-                if key_file and not os.path.exists(key_file):
-                    raise RuntimeError(
-                          _("Unable to find key_file : %s") % key_file)
-
-                if self._use_ssl and (not cert_file or not key_file):
-                    raise RuntimeError(
-                          _("When running server in SSL mode, you must "
-                            "specify both a cert_file and key_file "
-                            "option value in your configuration file"))
                 ssl_kwargs = {
                     'server_side': True,
-                    'certfile': cert_file,
-                    'keyfile': key_file,
+                    'certfile': CONF.ssl_cert_file,
+                    'keyfile': CONF.ssl_key_file,
                     'cert_reqs': ssl.CERT_NONE,
                 }
 
                 if CONF.ssl_ca_file:
-                    ssl_kwargs['ca_certs'] = ca_file
+                    ssl_kwargs['ca_certs'] = CONF.ssl_ca_file
                     ssl_kwargs['cert_reqs'] = ssl.CERT_REQUIRED
 
-                dup_socket = eventlet.wrap_ssl(dup_socket,
-                                               **ssl_kwargs)
+                dup_socket = ssl.wrap_socket(dup_socket,
+                                             **ssl_kwargs)
             except Exception:
                 with excutils.save_and_reraise_exception():
-                    LOG.error(_LE("Failed to start %(name)s on %(host)s"
-                                  ":%(port)s with SSL support"),
-                              {'name': self.name, 'host': self.host,
-                               'port': self.port})
+                    LOG.error(_("Failed to start %(name)s on %(_host)s:"
+                                "%(_port)s with SSL support.") % self.__dict__)
 
         wsgi_kwargs = {
             'func': eventlet.wsgi.server,
@@ -223,24 +240,19 @@ class Server(object):
             'protocol': self._protocol,
             'custom_pool': self._pool,
             'log': self._wsgi_logger,
-            'log_format': CONF.wsgi_log_format,
-            'debug': False,
             'keepalive': CONF.wsgi_keep_alive,
             'socket_timeout': self.client_socket_timeout
-            }
-
-        if self._max_url_len:
-            wsgi_kwargs['url_length_limit'] = self._max_url_len
+        }
 
         self._server = eventlet.spawn(**wsgi_kwargs)
 
-    def reset(self):
-        """Reset server greenpool size to default.
+    @property
+    def host(self):
+        return self._host
 
-        :returns: None
-
-        """
-        self._pool.resize(self.pool_size)
+    @property
+    def port(self):
+        return self._port
 
     def stop(self):
         """Stop this server.
@@ -251,8 +263,7 @@ class Server(object):
         :returns: None
 
         """
-        LOG.info(_LI("Stopping WSGI server."))
-
+        LOG.info(_("Stopping WSGI server."))
         if self._server is not None:
             # Resize pool to stop new requests from being processed
             self._pool.resize(0)
@@ -271,7 +282,15 @@ class Server(object):
                 self._pool.waitall()
                 self._server.wait()
         except greenlet.GreenletExit:
-            LOG.info(_LI("WSGI server has stopped."))
+            LOG.info(_("WSGI server has stopped."))
+
+    def reset(self):
+        """Reset server greenpool size to default.
+
+        :returns: None
+
+        """
+        self._pool.resize(self.pool_size)
 
 
 class Request(webob.Request):
@@ -293,11 +312,11 @@ class Application(object):
 
             [app:wadl]
             latest_version = 1.3
-            paste.app_factory = prototype.api.fancy_api:Wadl.factory
+            paste.app_factory = cinder.api.fancy_api:Wadl.factory
 
         which would result in a call to the `Wadl` class as
 
-            import prototype.api.fancy_api
+            import cinder.api.fancy_api
             fancy_api.Wadl(latest_version='1.3')
 
         You could of course re-implement the `factory` method in subclasses,
@@ -320,7 +339,7 @@ class Application(object):
           res = exc.HTTPForbidden(explanation='Nice try')
 
           # Option 3: a webob Response object (in case you need to play with
-          # headers, or you want to be treated like an iterable, or or or)
+          # headers, or you want to be treated like an iterable)
           res = Response();
           res.app_iter = open('somefile')
 
@@ -365,19 +384,21 @@ class Middleware(Application):
 
             [filter:analytics]
             redis_host = 127.0.0.1
-            paste.filter_factory = prototype.api.analytics:Analytics.factory
+            paste.filter_factory = cinder.api.analytics:Analytics.factory
 
         which would result in a call to the `Analytics` class as
 
-            import prototype.api.analytics
+            import cinder.api.analytics
             analytics.Analytics(app_from_paste, redis_host='127.0.0.1')
 
         You could of course re-implement the `factory` method in subclasses,
         but using the kwarg passing it shouldn't be necessary.
 
         """
+
         def _factory(app):
             return cls(app, **local_config)
+
         return _factory
 
     def __init__(self, application):
@@ -509,28 +530,18 @@ class Loader(object):
         :returns: None
 
         """
-        self.config_path = None
-
         config_path = config_path or CONF.api_paste_config
-        if not os.path.isabs(config_path):
-            self.config_path = CONF.find_file(config_path)
-        elif os.path.exists(config_path):
-            self.config_path = config_path
-
-        if not self.config_path:
-            raise exception.ConfigNotFound(path=config_path)
+        self.config_path = utils.find_config(config_path)
 
     def load_app(self, name):
         """Return the paste URLMap wrapped WSGI application.
 
         :param name: Name of the application to load.
         :returns: Paste URLMap object wrapping the requested application.
-        :raises: `prototype.exception.PasteAppNotFound`
+        :raises: `cinder.exception.PasteAppNotFound`
 
         """
         try:
-            LOG.debug("Loading app %(name)s from %(path)s",
-                      {'name': name, 'path': self.config_path})
             return deploy.loadapp("config:%s" % self.config_path, name=name)
         except LookupError as err:
             LOG.error(err)

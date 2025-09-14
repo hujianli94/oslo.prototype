@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2013 Red Hat, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -30,8 +31,8 @@ rpcapi_opts = [
 CONF = cfg.CONF
 CONF.register_opts(rpcapi_opts)
 
-class WorkerRPCAPI(object):
 
+class WorkerRPCAPI(object):
 
     def __init__(self, topic=None, server=None):
         super(WorkerRPCAPI, self).__init__()
@@ -40,5 +41,10 @@ class WorkerRPCAPI(object):
         self.client = rpc.get_client(target)
 
     def debug(self, ctxt):
-        cctxt = self.client.prepare(server='ubuntu')
+        cctxt = self.client.prepare()
         return cctxt.call(ctxt, 'debug')
+
+    def get_system_info(self, ctxt):
+        """调用 WorkerManager 的 get_system_info 方法"""
+        cctxt = self.client.prepare()
+        return cctxt.call(ctxt, 'get_system_info')

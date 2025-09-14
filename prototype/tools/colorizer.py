@@ -80,6 +80,7 @@ class _AnsiColorizer(object):
             except Exception:
                 # guess false in case of error
                 return False
+
     supported = classmethod(supported)
 
     def write(self, text, color):
@@ -95,6 +96,7 @@ class _AnsiColorizer(object):
 
 class _Win32Colorizer(object):
     """See _AnsiColorizer docstring."""
+
     def __init__(self, stream):
         import win32console
         red, green, blue, bold = (win32console.FOREGROUND_RED,
@@ -103,7 +105,7 @@ class _Win32Colorizer(object):
                                   win32console.FOREGROUND_INTENSITY)
         self.stream = stream
         self.screenBuffer = win32console.GetStdHandle(
-                win32console.STD_OUT_HANDLE)
+            win32console.STD_OUT_HANDLE)
         self._colors = {
             'normal': red | green | blue,
             'red': red | bold,
@@ -113,7 +115,7 @@ class _Win32Colorizer(object):
             'magenta': red | blue | bold,
             'cyan': green | blue | bold,
             'white': red | green | blue | bold
-            }
+        }
 
     def supported(cls, stream=sys.stdout):
         try:
@@ -132,6 +134,7 @@ class _Win32Colorizer(object):
             return False
         else:
             return True
+
     supported = classmethod(supported)
 
     def write(self, text, color):
@@ -143,11 +146,13 @@ class _Win32Colorizer(object):
 
 class _NullColorizer(object):
     """See _AnsiColorizer docstring."""
+
     def __init__(self, stream):
         self.stream = stream
 
     def supported(cls, stream=sys.stdout):
         return True
+
     supported = classmethod(supported)
 
     def write(self, text, color):
