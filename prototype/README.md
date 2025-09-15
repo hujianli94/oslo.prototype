@@ -100,13 +100,19 @@ export OS_PROTOTYPE_USER_DOMAIN_NAME=Default
 prototype service-list
 
 # 创建服务
-prototype service-create --host compute01 --type compute --topic worker
+prototype service-create --host compute01 --type rpc --topic worker
 
 # 显示服务详情
 prototype service-show {service_id}
 
 # 更新服务
 prototype service-update {service_id} --disabled True
+# 更新服务的 report_count
+prototype service-update <service_id> --report-count 5
+# 同时更新多个字段
+prototype service-update <service_id> --report-count 3 --host compute01 --binary prototype-agent --type rpc --topic worker
+# 查看服务详情确认更新
+prototype service-show <service_id>
 
 # 删除服务
 prototype service-delete {service_id}

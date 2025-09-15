@@ -57,6 +57,22 @@ def do_service_delete(client, args):
 @utils.arg('service',
            metavar='<service>',
            help='ID of service to update')
+@utils.arg('--host',
+           metavar='<host>',
+           help='Service host')
+@utils.arg('--binary',
+           metavar='<binary>',
+           help='Service binary')
+@utils.arg('--type',
+           metavar='<type>',
+           help='Service type')
+@utils.arg('--topic',
+           metavar='<topic>',
+           help='Service topic')
+@utils.arg('--report-count',
+           metavar='<report-count>',
+           type=int,
+           help='Service report count')
 @utils.arg('--disabled',
            metavar='<disabled>',
            help='Disable service (true/false)')
@@ -67,12 +83,21 @@ def do_service_update(client, args):
     """Update a service."""
     kwargs = {}
 
+    if args.host is not None:
+        kwargs['host'] = args.host
+    if args.binary is not None:
+        kwargs['binary'] = args.binary
+    if args.type is not None:
+        kwargs['type'] = args.type
+    if args.topic is not None:
+        kwargs['topic'] = args.topic
+    if args.report_count is not None:
+        kwargs['report_count'] = args.report_count
     if args.disabled:
         try:
             kwargs['disabled'] = strutils.bool_from_string(args.disabled, strict=True)
         except ValueError:
             raise exc.CommandError("Disabled must be 'true' or 'false'")
-
     if args.disabled_reason is not None:
         kwargs['disabled_reason'] = args.disabled_reason
 
