@@ -1,8 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 from prototype.api.openstack import APIRouter as BaseAPIRouter
 from prototype.api import extensions
+from prototype.common.i18n import _
 from prototype.api.v2 import service as service_v2
+from oslo_log import log as logging
+
+LOG = logging.getLogger(__name__)
 
 
 class APIRouter(BaseAPIRouter):
@@ -15,37 +20,30 @@ class APIRouter(BaseAPIRouter):
         # 调用父类的 __init__ 方法，传入有效的 ext_mgr
         super(APIRouter, self).__init__(ext_mgr)
 
+    # --- 保持方法签名与基类一致 ---
     def _setup_routes(self, mapper, ext_mgr):
         """Setup routes for the v2 API."""
+        LOG.info(_("Setting up standard V2 routes using mapper.resource..."))
         # 创建控制器实例
         service_controller = service_v2.ServiceController()
 
+        # 使用Resource包装控制器，确保正确处理响应
         from prototype.api.openstack import wsgi as os_wsgi
         service_resource = os_wsgi.Resource(service_controller)
 
-        # 注册服务相关路由
-        mapper.connect("/services",
-                       controller=service_resource,
-                       action='index',
-                       conditions={"method": ["GET"]})
-        mapper.connect("/services",
-                       controller=service_resource,
-                       action='create',
-                       conditions={"method": ["POST"]})
-        mapper.connect("/services/{id}",
-                       controller=service_resource,
-                       action='show',
-                       conditions={"method": ["GET"]})
-        mapper.connect("/services/{id}",
-                       controller=service_resource,
-                       action='update',
-                       conditions={"method": ["PUT"]})
-        mapper.connect("/services/{id}",
-                       controller=service_resource,
-                       action='delete',
-                       conditions={"method": ["DELETE"]})
+        # --- 使用 mapper.resource 注册服务相关路由 ---
+        # 为了匹配 /v2/services (不带 {project_id})，
+        # 需要显式覆盖 ProjectMapper 的默认 {project_id}/ 前缀。
+        mapper.resource("service",  # member_name - 通常为单数
+                        "services",  # collection_name - 通常为复数，也是URL路径的一部分
+                        controller=service_resource,
+                        path_prefix="",  # <-- 关键：显式设置为空字符串，移除 {project_id}/ 前缀
+                        # requirements={'id': r'[^/]*'} # 可选：对 id 参数格式做限制
+                        )
+        LOG.info(_("Standard V2 routes setup using mapper.resource complete."))
 
     @classmethod
     def factory(cls, global_config, **local_config):
         """Factory method for paste.deploy."""
+        LOG.info(_("Creating APIRouter from factory..."))
         return cls()

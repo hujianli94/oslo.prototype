@@ -51,6 +51,9 @@ socket_opts = [
                default=600,
                help="Sets the value of TCP_KEEPIDLE in seconds for each "
                     "server socket. Not supported on OS X."),
+    cfg.IntOpt('wsgi_default_pool_size',
+               default=1000,
+               help="Size of the pool of greenthreads used by wsgi"),
     cfg.IntOpt('tcp_keepalive_interval',
                help="Sets the value of TCP_KEEPINTVL in seconds for each "
                     "server socket. Not supported on OS X."),
@@ -100,10 +103,11 @@ LOG = logging.getLogger(__name__)
 class Server(object):
     """Server class to manage a WSGI server, serving a WSGI application."""
 
-    default_pool_size = 1000
+    default_pool_size = CONF.wsgi_default_pool_size
 
-    def __init__(self, name, app, host=None, port=None, pool_size=None,
-                 protocol=eventlet.wsgi.HttpProtocol, backlog=128):
+    def __init__(self, name, app, host='0.0.0.0', port=0, pool_size=None,
+                 protocol=eventlet.wsgi.HttpProtocol, backlog=128,
+                 use_ssl=False, max_url_len=None):
         """Initialize, but do not start, a WSGI server.
 
         :param name: Pretty name for logging.
@@ -116,7 +120,6 @@ class Server(object):
         """
         # Allow operators to customize http requests max header line size.
         eventlet.wsgi.MAX_HEADER_LINE = CONF.max_header_line
-        self.client_socket_timeout = CONF.client_socket_timeout or None
         self.name = name
         self.app = app
         self._host = host or "0.0.0.0"
@@ -128,6 +131,9 @@ class Server(object):
         self._pool = eventlet.GreenPool(self.pool_size)
         self._logger = logging.getLogger("eventlet.wsgi.server")
         self._wsgi_logger = self._logger
+        self._use_ssl = use_ssl
+        self._max_url_len = max_url_len
+        self.client_socket_timeout = CONF.client_socket_timeout or None
 
         if backlog < 1:
             raise exception.InvalidInput(
@@ -215,23 +221,59 @@ class Server(object):
 
         if self._use_ssl:
             try:
+                ca_file = CONF.ssl_ca_file
+                cert_file = CONF.ssl_cert_file
+                key_file = CONF.ssl_key_file
+
+                if cert_file and not os.path.exists(cert_file):
+                    raise RuntimeError(
+                        _("Unable to find cert_file : %s") % cert_file)
+
+                if ca_file and not os.path.exists(ca_file):
+                    raise RuntimeError(
+                        _("Unable to find ca_file : %s") % ca_file)
+
+                if key_file and not os.path.exists(key_file):
+                    raise RuntimeError(
+                        _("Unable to find key_file : %s") % key_file)
+
+                if self._use_ssl and (not cert_file or not key_file):
+                    raise RuntimeError(
+                        _("When running server in SSL mode, you must "
+                          "specify both a cert_file and key_file "
+                          "option value in your configuration file"))
                 ssl_kwargs = {
                     'server_side': True,
-                    'certfile': CONF.ssl_cert_file,
-                    'keyfile': CONF.ssl_key_file,
+                    'certfile': cert_file,
+                    'keyfile': key_file,
                     'cert_reqs': ssl.CERT_NONE,
                 }
 
                 if CONF.ssl_ca_file:
-                    ssl_kwargs['ca_certs'] = CONF.ssl_ca_file
+                    ssl_kwargs['ca_certs'] = ca_file
                     ssl_kwargs['cert_reqs'] = ssl.CERT_REQUIRED
 
-                dup_socket = ssl.wrap_socket(dup_socket,
-                                             **ssl_kwargs)
+                dup_socket = eventlet.wrap_ssl(dup_socket,
+                                               **ssl_kwargs)
+
+                dup_socket.setsockopt(socket.SOL_SOCKET,
+                                      socket.SO_REUSEADDR, 1)
+                # sockets can hang around forever without keepalive
+                dup_socket.setsockopt(socket.SOL_SOCKET,
+                                      socket.SO_KEEPALIVE, 1)
+
+                # This option isn't available in the OS X version of eventlet
+                if hasattr(socket, 'TCP_KEEPIDLE'):
+                    dup_socket.setsockopt(socket.IPPROTO_TCP,
+                                          socket.TCP_KEEPIDLE,
+                                          CONF.tcp_keepidle)
+
             except Exception:
                 with excutils.save_and_reraise_exception():
-                    LOG.error(_("Failed to start %(name)s on %(_host)s:"
-                                "%(_port)s with SSL support.") % self.__dict__)
+                    LOG.error(_("Failed to start %(name)s on %(host)s"
+                                ":%(port)s with SSL support"),
+                              {'name': self.name, 'host': self.host,
+                               'port': self.port})
 
         wsgi_kwargs = {
             'func': eventlet.wsgi.server,
@@ -243,6 +285,9 @@ class Server(object):
             'keepalive': CONF.wsgi_keep_alive,
             'socket_timeout': self.client_socket_timeout
         }
+
+        if self._max_url_len:
+            wsgi_kwargs['url_length_limit'] = self._max_url_len
 
         self._server = eventlet.spawn(**wsgi_kwargs)
 

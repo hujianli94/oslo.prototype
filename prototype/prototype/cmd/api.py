@@ -45,6 +45,6 @@ def main():
     launcher = service.process_launcher()
     for api in CONF.enabled_apis:
         should_use_ssl = api in CONF.enabled_ssl_apis
-        server = service.WSGIService(api, use_ssl=should_use_ssl)
+        server = service.WSGIService(api, use_ssl=should_use_ssl, max_url_len=16384)
         launcher.launch_service(server, workers=server.workers or 1)
     launcher.wait()

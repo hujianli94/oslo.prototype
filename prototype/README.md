@@ -62,6 +62,10 @@ curl -i -X DELETE http://172.22.180.123:8778/v1/services/{service_id}
 prototype-worker --config-file /etc/prototype/prototype.conf
 # 调用 rpc 方法
 curl -i -X GET http://172.22.180.123:8778/v1/services/rpc_test
+
+# 测试 扩展 API v2 接口
+# 列出所有 system_info
+curl -s  -X GET http://172.28.128.138:8778/v2/system_info| python -m json.tool
 ```
 
 ### API v2 测试

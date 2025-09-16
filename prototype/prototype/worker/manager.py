@@ -19,7 +19,7 @@ import psutil
 from oslo_config import cfg
 import oslo_messaging as messaging
 
-from prototype.common import service
+from prototype.common import service, exception
 from oslo_log import log as logging
 from prototype.common.service import periodic_task
 
@@ -44,26 +44,31 @@ class WorkerManager(service.Manager):
 
     def get_system_info(self, context):
         """获取主机名、CPU 和内存信息"""
+        LOG.debug("WorkerManager.get_system_info called")
         try:
             hostname = platform.node()
-            cpu_count = psutil.cpu_count(logical=True)
+            cpu_count = psutil.cpu_count(logical=False)
+            cpu_count_logical = psutil.cpu_count(logical=True)
             memory = psutil.virtual_memory()
             memory_total_gb = round(memory.total / (1024 ** 3), 2)
             memory_available_gb = round(memory.available / (1024 ** 3), 2)
             memory_percent = memory.percent
 
-            system_info = {
+            info = {
                 "hostname": hostname,
+                'os': platform.system(),
+                'os_version': platform.release(),
                 "cpu_count": cpu_count,
+                'cpu_count_logical': cpu_count_logical,
                 "memory_total_gb": memory_total_gb,
                 "memory_available_gb": memory_available_gb,
                 "memory_percent": memory_percent
             }
-            LOG.debug("System info retrieved: %s", system_info)
-            return system_info
+            LOG.debug("System info collected: %s", info)
+            return info
         except Exception as e:
             LOG.error("Failed to retrieve system info: %s", e)
-            return None
+            raise exception.PrototypeException(message=str(e))
 
     @periodic_task.periodic_task(spacing=60, run_immediately=True)
     def _periodic_worker_task(self, context):

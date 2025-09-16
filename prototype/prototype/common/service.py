@@ -357,6 +357,7 @@ class WSGIService(service.Service):
         self.base = ServiceBase(CONF.host, 'wsgi', name)
         self.manager = self._get_manager()
         self.loader = loader or wsgi.Loader()
+        # 从 paste 配置文件 加载 api 对应的 wsgi 的 Application
         self.app = self.loader.load_app(name)
         # inherit all compute_api worker counts from osapi_compute
         if name.startswith('openstack_compute_api'):
@@ -375,10 +376,15 @@ class WSGIService(service.Service):
                     'workers': str(self.workers)})
             raise exception.InvalidInput(msg)
         self.use_ssl = use_ssl
+        # 使用指定的IP和端口创建监听Socket。与普通多线程模式下的WSGI Server 不同，
+        # Prototype中使用Evenlet对WSGI进行了封装，在监听到一个HTTP请求时，
+        # 并不会新建一个独立的线程去处理，而是交给某个协程去处理
         self.server = wsgi.Server(name,
                                   self.app,
                                   host=self.host,
-                                  port=self.port)
+                                  port=self.port,
+                                  use_ssl=self.use_ssl,
+                                  max_url_len=max_url_len)
         # Pull back actual port used
         self.port = self.server.port
         self.backdoor_port = None

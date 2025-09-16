@@ -1,3 +1,4 @@
+# coding=utf-8
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
 # Copyright 2011 OpenStack LLC.
@@ -206,16 +207,17 @@ class ExtensionManager(object):
 
         LOG.debug(_("Loading extension %s"), ext_factory)
 
-        # Load the factory
+        # Load the factory 加载 ext_factory 类
         factory = importutils.import_class(ext_factory)
 
         # Call it
         LOG.debug(_("Calling extension factory %s"), ext_factory)
+        # 创建 ext_factory 类的实例
         factory(self)
 
     def _load_extensions(self):
         """Load extensions specified on the command line."""
-
+        # 将 osapi_servicemanage_extension 配置项中的扩展工厂类名列表转换为一个列表
         extensions = list(self.cls_list)
 
         # NOTE(thingee): Backwards compat for the old extension loader path.
@@ -230,7 +232,8 @@ class ExtensionManager(object):
                        'osapi_servicemanage_extension to: %s'), new_contrib_path)
             extensions = [e.replace(old_contrib_path, new_contrib_path)
                           for e in extensions]
-
+        # 对 extensions 列表中的每个扩展工厂类名，调用 load_extension 方法加载扩展
+        # 加载扩展时，会调用 register 方法注册扩展
         for ext_factory in extensions:
             try:
                 self.load_extension(ext_factory)

@@ -50,14 +50,18 @@ class APIMapper(routes.Mapper):
 
 class ProjectMapper(APIMapper):
     def resource(self, member_name, collection_name, **kwargs):
-        if 'parent_resource' not in kwargs:
-            kwargs['path_prefix'] = '{project_id}/'
-        else:
+        # if 'parent_resource' not in kwargs:
+        #     kwargs['path_prefix'] = '{project_id}/'
+        # else:
+        #     parent_resource = kwargs['parent_resource']
+        #     p_collection = parent_resource['collection_name']
+        #     p_member = parent_resource['member_name']
+        #     kwargs['path_prefix'] = '{project_id}/%s/:%s_id' % (p_collection,
+        #                                                         p_member)
+        if 'parent_resource' in kwargs:
             parent_resource = kwargs['parent_resource']
             p_collection = parent_resource['collection_name']
             p_member = parent_resource['member_name']
-            kwargs['path_prefix'] = '{project_id}/%s/:%s_id' % (p_collection,
-                                                                p_member)
         routes.Mapper.resource(self,
                                member_name,
                                collection_name,
@@ -74,6 +78,7 @@ class APIRouter(base_wsgi.Router):
         return cls()
 
     def __init__(self, ext_mgr=None):
+        # 创建 ExtensionManager 对象
         if ext_mgr is None:
             if self.ExtensionManager:
                 ext_mgr = self.ExtensionManager()
@@ -82,11 +87,14 @@ class APIRouter(base_wsgi.Router):
 
         mapper = ProjectMapper()
         self.resources = {}
-        # 添加 默认 路由
+        # 加载 标准 API 资源的 url 路由
+        # 通过 APIRouter._setup_routes 方法在 mapper 上直接定义的路由
         self._setup_routes(mapper, ext_mgr)
-        # 添加 扩展 路由
+        # 加载 扩展 API 资源的 url 路由
+        # 这些是通过 ExtensionDescriptor 子类定义的资源，并由 ExtensionManager 加载。
+        # 它们通常通过 ExtensionDescriptor.get_resources() 方法返回 extensions.ResourceExtension 对象。
         self._setup_ext_routes(mapper, ext_mgr)
-        # 添加 扩展 控制器
+        # 加载 扩展 API 资源的动作和扩展
         self._setup_extensions(ext_mgr)
         super(APIRouter, self).__init__(mapper)
 
