@@ -18,29 +18,32 @@ import platform
 import psutil
 from oslo_config import cfg
 import oslo_messaging as messaging
-
-from prototype.common import service, exception
+from prototype import db
+from prototype.common import exception
 from oslo_log import log as logging
-from prototype.common.service import periodic_task
+from prototype.common import manager
+from prototype.common.manager import periodic_task
 
 CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 
-class WorkerManager(service.Manager):
-    target = messaging.Target(version='2.0')
+class WorkerManager(manager.Manager):
+    target = messaging.Target(version='1.0')
 
     def __init__(self, *args, **kwargs):
         super(WorkerManager, self).__init__(service_name='worker', *args, **kwargs)
 
     def init_host(self):
-        from prototype import db
         from oslo_context import context
         ctxt = context.get_admin_context()
-        LOG.info("init worker")
+        LOG.info('init_host in WorkerManager.')
 
-    def debug(self, context):
-        return 'debug! this is a debug message'
+    def service_get_all(self, context):
+        service_list = db.service_get_all(context)
+        for x in service_list:
+            LOG.debug('x.id = %s' % x.id)
+            LOG.debug('x.topic = %s' % x.topic)
 
     def get_system_info(self, context):
         """获取主机名、CPU 和内存信息"""

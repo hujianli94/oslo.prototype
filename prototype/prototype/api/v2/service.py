@@ -57,7 +57,6 @@ class ServiceController(wsgi.Controller):
             if "service" in body and isinstance(body["service"], dict):
                 service_data = body["service"]
             else:
-                # 否则假设body本身就是服
                 service_data = body
         else:
             service_data = {}

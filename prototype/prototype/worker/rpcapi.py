@@ -19,7 +19,7 @@ Client side of the console RPC API.
 
 from oslo_config import cfg
 import oslo_messaging as messaging
-
+from oslo_log import log as logging
 from prototype.common import rpc
 
 rpcapi_opts = [
@@ -30,21 +30,31 @@ rpcapi_opts = [
 
 CONF = cfg.CONF
 CONF.register_opts(rpcapi_opts)
+LOG = logging.getLogger(__name__)
 
 
 class WorkerRPCAPI(object):
+    """
+    Client side of the console RPC API
+    API version history:
+    * 1.0 - Initial version.
+    * 1.1 - Added migration_update
+    """
+    BASE_RPC_API_VERSION = '1.0'
 
     def __init__(self, topic=None, server=None):
         super(WorkerRPCAPI, self).__init__()
         topic = topic if topic else CONF.worker_topic
-        target = messaging.Target(topic=topic, version='2.0')
+        target = messaging.Target(topic=topic, version=self.BASE_RPC_API_VERSION)
+        # 使用默认序列化器
         self.client = rpc.get_client(target)
 
     def debug(self, ctxt):
+        LOG.debug("WorkerRPCAPI.debug called")
         cctxt = self.client.prepare()
         return cctxt.call(ctxt, 'debug')
 
     def get_system_info(self, ctxt):
-        """调用 WorkerManager 的 get_system_info 方法"""
+        LOG.debug("WorkerRPCAPI.get_system_info called")
         cctxt = self.client.prepare()
         return cctxt.call(ctxt, 'get_system_info')

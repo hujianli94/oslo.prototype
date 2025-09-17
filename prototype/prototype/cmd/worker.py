@@ -37,10 +37,14 @@ def main():
     logging.setup(CONF, "prototype")
     rpc.init(CONF)
     utils.monkey_patch()
-    # server = service.RPCService.create(topic=CONF.worker_topic)
-    # service.serve(server)
-    # service.wait()
-    launcher = service.process_launcher()
+
+    # 使用标准的服务启动方式
     server = service.RPCService.create(topic=CONF.worker_topic)
-    launcher.launch_service(server)
-    launcher.wait()
+    service.serve(server)
+    service.wait()
+
+    # 使用 launch_service 启动方式
+    # launcher = service.process_launcher()
+    # server = service.RPCService.create(topic=CONF.worker_topic)
+    # launcher.launch_service(server)
+    # launcher.wait()

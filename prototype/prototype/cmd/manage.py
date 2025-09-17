@@ -209,10 +209,10 @@ class ShellCommands(object):
 
 
 def _db_error(caught_exception):
-    print(caught_exception)
+    print('%s' % caught_exception)
     print(_("The above error may show that the database has not "
             "been created.\nPlease create a database using "
-            "'prototype-manage db sync' before running this command."))
+            "'venus-manage db sync' before running this command."))
     exit(1)
 
 
@@ -380,7 +380,7 @@ def main():
         rpc.init(CONF)
 
     if CONF.category.name == "version":
-        print(version.version_string_with_package())
+        print(version.version_string())
         return (0)
 
     if CONF.category.name == "bash-completion":

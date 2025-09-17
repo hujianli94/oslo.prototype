@@ -17,16 +17,14 @@
 #    under the License.
 
 """Generic Node base class for all workers that run on hosts."""
-
+import inspect
 import os
 import random
 import sys
 
 from oslo_config import cfg
 import oslo_messaging as messaging
-from oslo_service import service
-from oslo_service import threadgroup
-from oslo_service import periodic_task
+from oslo_service import service, loopingcall
 from oslo_utils import importutils, timeutils
 from oslo_concurrency import processutils
 
@@ -49,9 +47,12 @@ service_opts = [
     cfg.BoolOpt('periodic_enable',
                 default=True,
                 help='Enable periodic tasks'),
+    cfg.IntOpt('periodic_interval',
+               default=60,
+               help='seconds between running periodic tasks'),
     cfg.IntOpt('periodic_fuzzy_delay',
                default=60,
-               help='Range of seconds to randomly delay when starting the'
+               help='range of seconds to randomly delay when starting the'
                     ' periodic task scheduler to reduce stampeding.'
                     ' (Disable by setting to 0)'),
     cfg.ListOpt('enabled_apis',
@@ -85,109 +86,75 @@ CONF.import_opt('host', 'prototype.config')
 
 
 class ServiceBase(object):
-    def __init__(self, host, type, topic, binary=None, *args, **kwargs):
+    """服务基础类，用于处理服务注册和状态报告"""
+
+    def __init__(self, host, type, binary, topic, *args, **kwargs):
         self.host = host
         self.type = type
+        self.binary = binary
         self.topic = topic
-        self.binary = binary or os.path.basename(sys.argv[0])
-        self.model = None
         self.context = context.get_admin_context()
+        self.service_id = None
 
-        # 查找现有的服务记录
-        svcs = db.service_get_all_by_host_and_topic(self.context, host=self.host, topic=self.topic)
-        if not svcs:
-            svc = {
-                'host': self.host,
-                'type': self.type,
-                'topic': self.topic,
-                'binary': self.binary,
-                'report_count': 0,
-                'availability_zone': CONF.storage_availability_zone or 'prototype'
-            }
-            self.model = db.service_create(self.context, svc)
-        else:
-            self.model = svcs[0]
-            # 服务启动时立即上报一次 同步服务状态到数据库
-            self.sync()
-        LOG.info("Service initialized: host=%(host)s, type=%(type)s, topic=%(topic)s, binary=%(binary)s",
-                 {'host': self.host, 'type': self.type, 'topic': self.topic, 'binary': self.binary})
+        # 初始化服务引用
+        self._init_service_ref()
 
-    def sync(self):
-        """同步服务状态到数据库，包括累加上报次数"""
+    def _init_service_ref(self):
+        """初始化服务引用，查找现有服务或创建新服务"""
         try:
-            if self.model:
-                current_model = db.service_get(self.context, self.model['id'])
-                new_report_count = current_model['report_count'] + 1
-                updated_values = {
-                    'updated_at': timeutils.utcnow(),  # 更新时间戳
-                    'binary': self.binary,  # 确保 binary 也同步（虽然通常不变）
-                    'report_count': new_report_count  # 更新上报次数
-                }
+            service_ref = db.service_get_by_args(self.context,
+                                                 self.host,
+                                                 self.binary)
+            self.service_id = service_ref['id']
+            LOG.info("Found existing service: %(host)s:%(topic)s [%(id)s]",
+                     {'host': self.host, 'topic': self.topic, 'id': self.service_id})
+        except exception.NotFound:
+            self._create_service_ref()
 
-                self.model = db.service_update(self.context, self.model['id'], updated_values)
+    def _create_service_ref(self):
+        """创建服务引用"""
+        zone = CONF.storage_availability_zone or 'prototype'
+        service_ref = db.service_create(self.context,
+                                        {'host': self.host,
+                                         'type': self.type,
+                                         'binary': self.binary,
+                                         'topic': self.topic,
+                                         'report_count': 0,
+                                         'availability_zone': zone})
+        self.service_id = service_ref['id']
+        LOG.info("Created new service: %(host)s:%(topic)s [%(id)s]",
+                 {'host': self.host, 'topic': self.topic, 'id': self.service_id})
 
-                LOG.info(
-                    "Service sync completed for %(host)s:%(topic)s, report_count incremented to: %(report_count)s, binary: %(binary)s",
-                    {'host': self.host, 'topic': self.topic,
-                     'report_count': new_report_count,  # 使用新计算的值记录日志
-                     'binary': self.binary})
-        except exception.PrototypeException:
-            LOG.exception("PrototypeException during service sync for %(host)s:%(topic)s",
-                          {'host': self.host, 'topic': self.topic})
+    def report_state(self):
+        """更新服务状态到数据库"""
+        try:
+            service_ref = db.service_get(self.context, self.service_id)
+
+            state_catalog = {
+                'report_count': service_ref['report_count'] + 1,
+                'updated_at': timeutils.utcnow(),
+                'binary': self.binary,
+                'topic': self.topic,
+                'type': self.type,
+            }
+
+            # 更新可用区（如果发生变化）
+            zone = CONF.storage_availability_zone or 'prototype'
+            if zone != service_ref['availability_zone']:
+                state_catalog['availability_zone'] = zone
+
+            db.service_update(self.context, self.service_id, state_catalog)
+            LOG.debug("Service state reported: %(host)s:%(topic)s [%(id)s]",
+                      {'host': self.host, 'topic': self.topic, 'id': self.service_id})
+
+        except exception.NotFound:
+            # 服务记录丢失，重新创建
+            LOG.warning("Service record disappeared, recreating: %(host)s:%(topic)s",
+                        {'host': self.host, 'topic': self.topic})
+            self._create_service_ref()
         except Exception:
-            LOG.exception("Failed to sync service state for %(host)s:%(topic)s",
+            LOG.exception("Failed to report service state: %(host)s:%(topic)s",
                           {'host': self.host, 'topic': self.topic})
-
-
-class Manager(periodic_task.PeriodicTasks):
-
-    def __init__(self, host=None, db_driver=None, service_name='undefined'):
-        if not host:
-            host = CONF.host
-        self.host = host
-        self.backdoor_port = None
-        self.service_name = service_name
-        self.additional_endpoints = []
-        super(Manager, self).__init__(CONF)
-
-    def periodic_tasks(self, context, raise_on_error=False):
-        """Tasks to be run at a periodic interval."""
-        return self.run_periodic_tasks(context, raise_on_error=raise_on_error)
-
-    def init_host(self):
-        """Hook to do additional manager initialization when one requests
-        the service be started.  This is called before any service record
-        is created.
-
-        Child classes should override this method.
-        """
-        pass
-
-    def cleanup_host(self):
-        """Hook to do cleanup work when the service shuts down.
-
-        Child classes should override this method.
-        """
-        pass
-
-    def pre_start_hook(self):
-        """Hook to provide the manager the ability to do additional
-        start-up work before any RPC queues/consumers are created. This is
-        called after other initialization has succeeded and a service
-        record is created.
-
-        Child classes should override this method.
-        """
-        pass
-
-    def post_start_hook(self):
-        """Hook to provide the manager the ability to do additional
-        start-up work immediately after a service creates RPC consumers
-        and starts 'running'.
-
-        Child classes should override this method.
-        """
-        pass
 
 
 class RPCService(service.Service):
@@ -198,35 +165,51 @@ class RPCService(service.Service):
     it state to the database services table.
     """
 
-    def __init__(self, host, topic, manager, report_interval=None,
-                 periodic_enable=None, periodic_fuzzy_delay=None,
-                 periodic_interval_max=None, db_allowed=True,
-                 *args, **kwargs):
+    def __init__(self, host, binary, topic, manager, report_interval=None, periodic_enable=None,
+                 periodic_fuzzy_delay=None, periodic_interval=None, service_name=None, db_allowed=True, *args,
+                 **kwargs):
+        """
+        :param host: the host where the service is running
+        :param binary: the name of the executable
+        :param topic: the message queue topic
+        :param manager: the manager object for the service
+        :param report_interval: the interval in seconds for running periodic tasks
+        :param periodic_enable: enable periodic tasks
+        :param periodic_fuzzy_delay: range of seconds to randomly delay when starting the periodic task scheduler to reduce stampeding. (Disable by setting to 0)
+        :param periodic_interval: the interval in seconds for running periodic tasks
+        :param service_name: the name of the service
+        :param db_allowed: if False, don't create a service record in the DB
+        :returns: None
+        """
         super(RPCService, self).__init__()
         self.host = host
+        self.binary = binary
         self.topic = topic
-        self.binary = os.path.basename(sys.argv[0])
-        self.base = ServiceBase(host, 'rpc', topic)
         self.manager_class_name = manager
+        # 使用新的ServiceBase处理服务注册
+        self.base = ServiceBase(host, "rpc", binary, topic)
         manager_class = importutils.import_class(self.manager_class_name)
+        self.service = None
         self.manager = manager_class(host=self.host, *args, **kwargs)
         self.rpcserver = None
         self.report_interval = report_interval
         self.periodic_enable = periodic_enable
         self.periodic_fuzzy_delay = periodic_fuzzy_delay
-        self.periodic_interval_max = periodic_interval_max
+        self.periodic_interval = periodic_interval
         self.saved_args, self.saved_kwargs = args, kwargs
         self.backdoor_port = None
+        self.service_id = self.base.service_id
+        self.timers = []
+        self.rpcserver = None
+        self.notifier = None
+        self.service_name = service_name or self.binary
+        self.db_allowed = db_allowed
 
     def start(self):
-        verstr = version.version_string_with_package()
-        # LOG.debug(_('Starting %(topic)s node (version %(version)s)'), {'topic': self.topic, 'version': verstr})
-        LOG.info(_('Starting %(topic)s node (version %(version)s)'), {'topic': self.topic, 'version': verstr})
+        version_string = version.version_string()
+        LOG.info(_('Starting %(topic)s node (version %(version)s)'), {'topic': self.topic, 'version': version_string})
         self.basic_config_check()
         self.manager.init_host()
-        self.model_disconnected = False
-        ctxt = context.get_admin_context()
-
         self.manager.pre_start_hook()
 
         if self.backdoor_port is not None:
@@ -235,25 +218,42 @@ class RPCService(service.Service):
         LOG.debug("Creating RPC server for service %s %s", self.topic, self.host)
 
         target = messaging.Target(topic=self.topic, server=self.host)
-        endpoints = [
-            self.manager,
-            rpc.BaseRPCAPI(self.manager.service_name, self.backdoor_port)
-        ]
+        endpoints = [self.manager]
         endpoints.extend(self.manager.additional_endpoints)
-
+        # endpoints = [self.manager, rpc.BaseRPCAPI(self.manager.service_name, self.backdoor_port)]
         self.rpcserver = rpc.get_server(target, endpoints)
         self.rpcserver.start()
-
+        self.notifier = rpc.get_notifier("prototype", self.host)
+        self.manager.init_host_with_rpc()
         self.manager.post_start_hook()
 
-        if self.periodic_enable:
+        # # 添加定时任务
+        # # 手动创建FixedIntervalLoopingCall对象并管理timers列表
+        # if self.periodic_enable and self.periodic_interval:
+        #     if self.periodic_fuzzy_delay:
+        #         initial_delay = random.randint(0, self.periodic_fuzzy_delay)
+        #     else:
+        #         initial_delay = None
+        #
+        #     periodic = loopingcall.FixedIntervalLoopingCall(
+        #         self.periodic_tasks)
+        #     periodic.start(interval=self.periodic_interval,
+        #                    initial_delay=initial_delay)
+        #     self.timers.append(periodic)
+
+        # # 使用oslo.service提供的线程组管理器，自动管理线程生命周期
+        if self.report_interval:
+            # 使用oslo.service的timer机制
+            self.tg.add_timer(self.report_interval, self.report_state,
+                              initial_delay=self.report_interval)
+
+        if self.periodic_enable and self.periodic_interval:
             if self.periodic_fuzzy_delay:
                 initial_delay = random.randint(0, self.periodic_fuzzy_delay)
             else:
                 initial_delay = None
 
-            # 使用 oslo.service 的 threadgroup
-            self.tg.add_timer(self.report_interval,
+            self.tg.add_timer(self.periodic_interval,
                               self.periodic_tasks,
                               initial_delay=initial_delay)
 
@@ -262,40 +262,49 @@ class RPCService(service.Service):
         return getattr(manager, key)
 
     @classmethod
-    def create(cls, host=None, topic=None, manager=None,
-               report_interval=None, periodic_enable=None,
-               periodic_fuzzy_delay=None, periodic_interval_max=None,
-               db_allowed=True):
+    def create(cls, host=None, binary=None, topic=None, manager=None,
+               report_interval=None, periodic_enable=None, periodic_interval=None,
+               periodic_fuzzy_delay=None, service_name=None, db_allowed=True):
         """Instantiates class and passes back application object.
 
         :param host: defaults to CONF.host
+        :param binary: defaults to basename of executable
         :param topic: defaults to bin_name - 'prototype-' part
         :param manager: defaults to CONF.<topic>_manager
         :param report_interval: defaults to CONF.report_interval
         :param periodic_enable: defaults to CONF.periodic_enable
+        :param periodic_interval: defaults to CONF.periodic_interval
         :param periodic_fuzzy_delay: defaults to CONF.periodic_fuzzy_delay
-        :param periodic_interval_max: if set, the max time to wait between runs
-
+        :param service_name: defaults to 'undefined'
+        :param db_allowed: if False, don't create a service record in the DB
+        :returns: a WSGI application object
         """
         if not host:
             host = CONF.host
+        if not binary:
+            binary = os.path.basename(inspect.stack()[-1][1])
         if not topic:
-            topic = 'worker'
+            topic = binary
         if not manager:
             manager_cls = ('%s_manager' % topic)
             manager = CONF.get(manager_cls, None)
         if report_interval is None:
             report_interval = CONF.report_interval
+        if periodic_interval is None:
+            periodic_interval = CONF.periodic_interval
         if periodic_enable is None:
             periodic_enable = CONF.periodic_enable
         if periodic_fuzzy_delay is None:
             periodic_fuzzy_delay = CONF.periodic_fuzzy_delay
+        if service_name is None:
+            service_name = 'undefined'
 
-        service_obj = cls(host, topic, manager,
+        service_obj = cls(host, binary, topic, manager,
                           report_interval=report_interval,
+                          periodic_interval=periodic_interval,
                           periodic_enable=periodic_enable,
                           periodic_fuzzy_delay=periodic_fuzzy_delay,
-                          periodic_interval_max=periodic_interval_max,
+                          service_name=service_name,
                           db_allowed=db_allowed)
 
         return service_obj
@@ -304,8 +313,8 @@ class RPCService(service.Service):
         """Destroy the service object in the datastore."""
         self.stop()
         try:
-            self.conductor_api.service_destroy(context.get_admin_context(),
-                                               self.service_id)
+            db.service_destroy(context.get_admin_context(),
+                               self.service_id)
         except exception.NotFound:
             LOG.warning(_LW('Service killed that has no database entry'))
 
@@ -339,6 +348,10 @@ class RPCService(service.Service):
             LOG.error(_LE('Temporary directory is invalid: %s'), e)
             sys.exit(1)
 
+    def report_state(self):
+        """报告服务状态"""
+        self.base.report_state()
+
 
 class WSGIService(service.Service):
     """Provides ability to launch API from a 'paste' configuration."""
@@ -353,13 +366,12 @@ class WSGIService(service.Service):
         """
         super(WSGIService, self).__init__()
         self.name = name
-        self.binary = os.path.basename(sys.argv[0])
-        self.base = ServiceBase(CONF.host, 'wsgi', name)
+        self.binary = os.path.basename(inspect.stack()[-1][1])
+        # WSGI服务也使用新的ServiceBase
+        self.base = ServiceBase(CONF.host, "wsgi", self.binary, name)
         self.manager = self._get_manager()
         self.loader = loader or wsgi.Loader()
-        # 从 paste 配置文件 加载 api 对应的 wsgi 的 Application
         self.app = self.loader.load_app(name)
-        # inherit all compute_api worker counts from osapi_compute
         if name.startswith('openstack_compute_api'):
             wname = 'osapi_compute'
         else:
@@ -376,16 +388,12 @@ class WSGIService(service.Service):
                     'workers': str(self.workers)})
             raise exception.InvalidInput(msg)
         self.use_ssl = use_ssl
-        # 使用指定的IP和端口创建监听Socket。与普通多线程模式下的WSGI Server 不同，
-        # Prototype中使用Evenlet对WSGI进行了封装，在监听到一个HTTP请求时，
-        # 并不会新建一个独立的线程去处理，而是交给某个协程去处理
         self.server = wsgi.Server(name,
                                   self.app,
                                   host=self.host,
                                   port=self.port,
                                   use_ssl=self.use_ssl,
                                   max_url_len=max_url_len)
-        # Pull back actual port used
         self.port = self.server.port
         self.backdoor_port = None
 
@@ -472,6 +480,16 @@ def serve(server, workers=None):
 
 
 def wait():
+    CONF.log_opt_values(LOG, logging.DEBUG)
+    LOG.debug(_('Full set of FLAGS:'))
+    for flag in CONF:
+        flag_get = CONF.get(flag, None)
+        if ("_password" in flag or "_key" in flag or "_secret" in flag or
+                (flag == "sql_connection" and "mysql:" in flag_get)):
+            flag_get = "***"
+            LOG.debug('%(flag)s : %(flag_get)s' % locals())
+        else:
+            LOG.debug('%(flag)s : %(flag_get)s' % locals())
     try:
         _launcher.wait()
     except KeyboardInterrupt:

@@ -32,14 +32,9 @@ class APIRouter(BaseAPIRouter):
         service_resource = os_wsgi.Resource(service_controller)
 
         # --- 使用 mapper.resource 注册服务相关路由 ---
-        # 为了匹配 /v2/services (不带 {project_id})，
-        # 需要显式覆盖 ProjectMapper 的默认 {project_id}/ 前缀。
         mapper.resource("service",  # member_name - 通常为单数
                         "services",  # collection_name - 通常为复数，也是URL路径的一部分
-                        controller=service_resource,
-                        path_prefix="",  # <-- 关键：显式设置为空字符串，移除 {project_id}/ 前缀
-                        # requirements={'id': r'[^/]*'} # 可选：对 id 参数格式做限制
-                        )
+                        controller=service_resource)
         LOG.info(_("Standard V2 routes setup using mapper.resource complete."))
 
     @classmethod
