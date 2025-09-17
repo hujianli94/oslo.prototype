@@ -78,9 +78,7 @@ from prototype import version
 
 CONF = cfg.CONF
 
-import pymysql
 
-pymysql.install_as_MySQLdb()
 
 
 class MissingArgs(Exception):

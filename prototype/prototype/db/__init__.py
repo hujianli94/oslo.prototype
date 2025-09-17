@@ -16,5 +16,7 @@
 """
 DB abstraction for Prototype
 """
+import pymysql
 
+pymysql.install_as_MySQLdb()
 from prototype.db.api import *  # noqa

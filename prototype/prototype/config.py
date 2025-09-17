@@ -27,9 +27,7 @@ from oslo_utils import netutils
 
 CONF = cfg.CONF
 
-import pymysql
 
-pymysql.install_as_MySQLdb()
 
 core_opts = [
     cfg.StrOpt('connection_type',
