@@ -63,6 +63,45 @@ def get_backend():
     return sys.modules[__name__]
 
 
+def require_context(f):
+    """Decorator to require *any* user or admin context.
+
+    This does no authorization for user or project access matching, see
+    :py:func:`authorize_project_context` and
+    :py:func:`authorize_user_context`.
+
+    The first argument to the wrapped function must be the context.
+
+    """
+
+    def wrapper(*args, **kwargs):
+        if not is_admin_context(args[0]) and not is_user_context(args[0]):
+            raise exception.NotAuthorized()
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+def _retry_on_deadlock(f):
+    """Decorator to retry a DB API call if Deadlock was received."""
+
+    @functools.wraps(f)
+    def wrapped(*args, **kwargs):
+        while True:
+            try:
+                return f(*args, **kwargs)
+            except db_exc.DBDeadlock:
+                LOG.warning(_LW("Deadlock detected when running "
+                                "'%(func_name)s': Retrying..."),
+                            dict(func_name=f.__name__))
+                # Retry!
+                time.sleep(0.5)
+                continue
+
+    functools.update_wrapper(wrapped, f)
+    return wrapped
+
+
 def is_admin_context(context):
     """Indicates if the request context is an administrator."""
     if not context:
@@ -70,6 +109,12 @@ def is_admin_context(context):
                       DeprecationWarning)
         raise Exception('die')
     return context.is_admin
+
+
+def _session(context=None):
+    # return get_session()
+    # return get_session()
+    return (context and context.session) or get_session()
 
 
 def is_user_context(context):
@@ -123,45 +168,6 @@ def require_admin_context(f):
         return f(*args, **kwargs)
 
     return wrapper
-
-
-def require_context(f):
-    """Decorator to require *any* user or admin context.
-
-    This does no authorization for user or project access matching, see
-    :py:func:`authorize_project_context` and
-    :py:func:`authorize_user_context`.
-
-    The first argument to the wrapped function must be the context.
-
-    """
-
-    def wrapper(*args, **kwargs):
-        if not is_admin_context(args[0]) and not is_user_context(args[0]):
-            raise exception.NotAuthorized()
-        return f(*args, **kwargs)
-
-    return wrapper
-
-
-def _retry_on_deadlock(f):
-    """Decorator to retry a DB API call if Deadlock was received."""
-
-    @functools.wraps(f)
-    def wrapped(*args, **kwargs):
-        while True:
-            try:
-                return f(*args, **kwargs)
-            except db_exc.DBDeadlock:
-                LOG.warning(_LW("Deadlock detected when running "
-                                "'%(func_name)s': Retrying..."),
-                            dict(func_name=f.__name__))
-                # Retry!
-                time.sleep(0.5)
-                continue
-
-    functools.update_wrapper(wrapped, f)
-    return wrapped
 
 
 def convert_datetimes(values, *datetime_keys):
@@ -283,18 +289,42 @@ def service_update(context, service_id, values):
     return service_ref
 
 
+# @require_admin_context
+# def service_destroy(context, service_id, soft_delete=True):
+#     """Destroy the service or raise ServiceNotFound if it does not exist."""
+#     try:
+#         service_ref = service_get(context, service_id)
+#         # 软删除
+#         service_ref['deleted'] = True
+#         service_ref['deleted_at'] = timeutils.utcnow()
+#         service_ref['updated_at'] = service_ref['deleted_at']
+#         service_ref.save()
+#         # 物理删除
+#         # service_ref.delete(service_ref['id'])
+#     except exception.ServiceNotFound:
+#         raise
+#     except Exception as e:
+#         LOG.error("Error deleting service: %s" % e)
+#         raise
+
+
 @require_admin_context
-def service_destroy(context, service_id):
+def service_destroy(context, service_id, soft_delete=True):
     """Destroy the service or raise ServiceNotFound if it does not exist."""
     try:
         service_ref = service_get(context, service_id)
-        # 软删除
-        service_ref['deleted'] = True
-        service_ref['deleted_at'] = timeutils.utcnow()
-        service_ref['updated_at'] = service_ref['deleted_at']
-        service_ref.save()
-        # 物理删除
-        # service_ref.delete(service_ref['id'])
+        if soft_delete:
+            # 使用 models.Service.delete_values() 进行软删除
+            updated_values = models.Service.delete_values()
+            # 更新 deleted, deleted_at 和 updated_at 字段
+            service_ref.update(updated_values)
+            service_ref.save()
+        else:
+            # 硬删除 - 直接从数据库中删除记录
+            session = get_session()
+            with session.begin():
+                session.delete(service_ref)
+        return service_ref
     except exception.ServiceNotFound:
         raise
     except Exception as e:
@@ -364,9 +394,11 @@ def service_get_all_by_host_and_topic(context, host, topic):
 
 ############################ WorkerNode #################################
 @require_admin_context
-def worker_node_get(context, worker_node_id):
+def worker_node_get(context, worker_node_id, session=None):
     """Get a worker node or raise WorkerNodeNotFound if it does not exist."""
-    result = model_query(context, models.WorkerNode, read_deleted="no"). \
+    if not session:
+        session = get_session()
+    result = model_query(context, models.WorkerNode, session=session, read_deleted="no"). \
         filter_by(id=worker_node_id). \
         first()
 
@@ -376,24 +408,31 @@ def worker_node_get(context, worker_node_id):
     return result
 
 
-@require_admin_context
+@require_context
 def worker_node_create(context, values):
-    """Create a worker node from the values dictionary."""
+    """Create a new worker node."""
+    values = values.copy()
+    # 确保created_at和updated_at字段被正确设置
+    values['created_at'] = values.get('created_at', timeutils.utcnow())
+    values['updated_at'] = values.get('updated_at', timeutils.utcnow())
+
     worker_node_ref = models.WorkerNode()
     worker_node_ref.update(values)
     worker_node_ref.save()
     return worker_node_ref
 
 
-@require_admin_context
+@require_context
 def worker_node_update(context, worker_node_id, values):
-    """Set the given properties on a worker node and update it.
+    """Update a worker node."""
+    session = get_session()
+    with session.begin():
+        # 确保updated_at字段被更新
+        values['updated_at'] = timeutils.utcnow()
 
-    :raises: WorkerNodeNotFound if worker node does not exist
-    """
-    worker_node_ref = worker_node_get(context, worker_node_id)
-    worker_node_ref.update(values)
-    worker_node_ref.save()
+        worker_node_ref = worker_node_get(context, worker_node_id, session=session)
+        worker_node_ref.update(values)
+        worker_node_ref.save(session=session)
     return worker_node_ref
 
 

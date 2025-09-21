@@ -51,9 +51,9 @@ def upgrade(migrate_engine):
                          Column('os', String(length=255), nullable=False),
                          Column('os_version', String(length=255), nullable=False),
                          Column('cpu_count', Integer(), nullable=False),
-                         Column('cpu_count_logical', Integer(), nullable=False),
-                         Column('memory_total_gb', Integer(), nullable=False),
-                         Column('memory_available_gb', Integer(), nullable=False),
+                         Column('cpu_count_logical', Float(), nullable=False),
+                         Column('memory_total_gb', Float(), nullable=False),
+                         Column('memory_available_gb', Float(), nullable=False),
                          Column('memory_percent', Float(), nullable=False),
                          # 添加MySQL字符集配置
                          mysql_charset='utf8',

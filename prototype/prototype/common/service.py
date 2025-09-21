@@ -206,7 +206,7 @@ class Service(service.Service):
         self.stop()
         try:
             # delete db
-            db.service_destroy(context.get_admin_context(), self.service_id)
+            db.service_destroy(context.get_admin_context(), self.service_id, soft_delete=False)
         except exception.NotFound:
             LOG.warning(_LW('Service killed that has no database entry'))
 
@@ -241,6 +241,7 @@ class Service(service.Service):
 
     def report_state(self):
         """Update the state of this service in the datastore."""
+        LOG.debug('Reporting service state. service_id: %s', self.service_id)
         ctxt = context.get_admin_context()
         zone = CONF.prototype_availability_zone
         state_catalog = {}

@@ -1,0 +1,20 @@
+[Unit]
+Description=Prototype worker service
+After=postgresql.service mysql.service keystone.service rabbitmq-server.service ntp.service
+
+
+[Service]
+User=prototype
+Group=prototype
+Type=simple
+WorkingDirectory=/var/lib/prototype
+PermissionsStartOnly=true
+ExecStartPre=/bin/mkdir -p /var/lock/prototype /var/log/prototype /var/lib/prototype
+ExecStartPre=/bin/chown prototype:prototype /var/lock/prototype /var/log/prototype /var/lib/prototype
+ExecStart=/usr/local/bin/prototype-worker --config-file=/etc/prototype/prototype.conf --log-file=/var/log/prototype/prototype-worker.log
+Restart=on-failure
+LimitNOFILE=65535
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

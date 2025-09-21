@@ -71,25 +71,31 @@ class WorkerManager(manager.Manager):
             LOG.error("Failed to collect worker info: %s", e)
             raise exception.PrototypeException(message=str(e))
 
-    @periodic_task.periodic_task(
-        spacing=CONF.collection_interval,
-        run_immediately=True)
+    @periodic_task.periodic_task(spacing=CONF.collection_interval, run_immediately=True)
     def _periodic_worker_task(self, context):
         """周期性任务，收集worker信息并写入数据库"""
         LOG.debug("================== Worker periodic task executed =================================")
         try:
+            # 获取当前worker信息
             worker_info = self.get_worker_info(context)
             hostname = worker_info['hostname']
 
-            # 尝试获取现有的WorkerNode记录
+            # 根据hostname查找现有的worker节点记录
             existing_nodes = db_api.worker_node_get_all(context, filters={'hostname': hostname})
 
             if existing_nodes:
                 # 如果存在现有记录，则更新它
                 existing_node = existing_nodes[0]
-                db_api.worker_node_update(context, existing_node['id'], worker_info)
+                # 创建不包含hostname的更新字典，避免更新主键字段
+                update_info = worker_info.copy()
+                update_info.pop('hostname', None)
+                # 确保updated_at字段也会被更新
+                db_api.worker_node_update(context, existing_node['id'], update_info)
+                LOG.debug("Updated worker node info for hostname: %s", hostname)
             else:
+                # 如果不存在现有记录，则创建新记录
                 db_api.worker_node_create(context, worker_info)
+                LOG.debug("Created new worker node info for hostname: %s", hostname)
         except Exception as e:
             LOG.error("Failed to save/update worker info to database: %s", e)
             raise exception.PrototypeException(message=str(e))

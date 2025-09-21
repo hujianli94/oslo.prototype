@@ -39,15 +39,16 @@ def main():
 
     rpc.init(CONF)
 
-    server = service.Service.create(binary="prototype-worker", topic=CONF.worker_topic)
-    service.serve(server)
-    service.wait()
+    # 使用 serve 启动方式
+    # server = service.Service.create(binary="prototype-worker", topic=CONF.worker_topic)
+    # service.serve(server)
+    # service.wait()
 
     # 使用 launch_service 启动方式
-    # launcher = service.process_launcher()
-    # server = service.Service.create(topic=CONF.worker_topic)
-    # launcher.launch_service(server)
-    # launcher.wait()
+    launcher = service.get_launcher()
+    server = service.Service.create(binary="prototype-worker", topic=CONF.worker_topic)
+    launcher.launch_service(server)
+    launcher.wait()
 
 
 if __name__ == '__main__':

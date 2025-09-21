@@ -52,8 +52,8 @@ def service_update(context, service_id, values):
     return IMPL.service_update(context, service_id, values)
 
 
-def service_destroy(context, service_id):
-    return IMPL.service_destroy(context, service_id)
+def service_destroy(context, service_id, soft_delete=True):
+    return IMPL.service_destroy(context, service_id, soft_delete)
 
 
 def service_get_all(context, disabled=None):

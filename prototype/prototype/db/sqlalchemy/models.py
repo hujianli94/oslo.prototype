@@ -20,9 +20,6 @@ def get_session():
 class PrototypeBase(models.SoftDeleteMixin, models.TimestampMixin, models.ModelBase):
     metadata = None
     __table_args__ = {'mysql_engine': 'InnoDB'}
-    __table_initialized__ = False
-    created_at = Column(DateTime, default=lambda: timeutils.utcnow())
-    updated_at = Column(DateTime, onupdate=lambda: timeutils.utcnow())
 
     def __copy__(self):
         """Implement a safe copy.copy()."""

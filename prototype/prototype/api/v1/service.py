@@ -101,7 +101,7 @@ class ServiceController(wsgi.Controller):
         """删除指定ID的服务"""
         ctxt = context.get_admin_context()
         try:
-            db.service_destroy(ctxt, id)
+            db.service_destroy(ctxt, id, soft_delete=True)
             # 确保正确返回 204 状态码
             return webob.Response(status=204)  #
         except Exception as e:

@@ -16,7 +16,7 @@ from oslo_config import cfg
 
 service_opts = [
     cfg.IntOpt('report_interval',
-               default=1,
+               default=5,
                help='Interval, in seconds, between nodes reporting state '
                     'to datastore'),
     cfg.IntOpt('collection_interval',
