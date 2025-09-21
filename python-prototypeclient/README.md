@@ -20,4 +20,5 @@ EOF
 ```shell
 export PROTOTYPE_URL=http://172.22.180.123:8778/v1
 export OS_NO_CLIENT_AUTH=true
+export OS_AUTH_TOKEN=123
 ```

@@ -21,8 +21,8 @@ class RpcTestController(wsgi.Controller):
         ctxt = context.get_admin_context()
         try:
             worker_rpcapi = rpcapi.WorkerRPCAPI()
-            # 调用 Worker 的 get_system_info 方法
-            system_info = worker_rpcapi.get_system_info(ctxt)
+            # 调用 Worker 的 get_worker_info 方法
+            system_info = worker_rpcapi.get_worker_info(ctxt)
             view_builder = self._view_builder_class()
             # 调用视图构建器的 show 方法
             result = view_builder.show(req, system_info)

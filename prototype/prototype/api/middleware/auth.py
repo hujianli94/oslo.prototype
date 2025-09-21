@@ -18,26 +18,17 @@ Common Auth Middleware.
 
 """
 
-from oslo_config import cfg
 import webob.dec
 import webob.exc
+from oslo_serialization import jsonutils
+from oslo_log import log as logging
+from oslo_middleware import request_id
 
 from prototype.common import wsgi
 from prototype import context
 from prototype.common.i18n import _
-from oslo_serialization import jsonutils
-from oslo_log import log as logging
-from oslo_middleware import request_id
+from prototype.conf import CONF
 from prototype.common import wsgi as base_wsgi
-
-use_forwarded_for_opt = cfg.BoolOpt(
-    'use_forwarded_for',
-    default=False,
-    help='Treat X-Forwarded-For as the canonical remote address. '
-         'Only enable this if you have a sanitizing proxy.')
-
-CONF = cfg.CONF
-CONF.register_opt(use_forwarded_for_opt)
 
 LOG = logging.getLogger(__name__)
 
@@ -126,6 +117,7 @@ class PrototypeKeystoneContext(base_wsgi.Middleware):
 
 class NoAuthMiddleware(base_wsgi.Middleware):
     """Add a 'fake' request context if one isn't specified."""
+
     @webob.dec.wsgify(RequestClass=wsgi.Request)
     def __call__(self, req):
         if 'X-Auth-Token' not in req.headers:

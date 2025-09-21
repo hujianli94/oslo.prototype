@@ -15,36 +15,40 @@
 #    under the License.
 
 """Starter script for Prototype Console Proxy."""
-
+import os
 import sys
 
-from oslo_config import cfg
-
-from prototype import config
 from oslo_log import log as logging
+from prototype.conf import CONF
 from prototype.common import service
 from prototype.common import utils
 from prototype.common import rpc
+from prototype.conf import CONF
 from prototype import version
-
-CONF = cfg.CONF
-CONF.import_opt('worker_topic', 'prototype.worker.rpcapi')
 
 
 def main():
-    logging.register_options(CONF)
-    config.parse_args(sys.argv)
+    CONF(sys.argv[1:], project='prototype',
+         version=version.version_string())
+    logdir = CONF.log_dir
+    is_exists = os.path.exists(logdir)
+    if not is_exists:
+        os.makedirs(logdir)
     logging.setup(CONF, "prototype")
-    rpc.init(CONF)
     utils.monkey_patch()
 
-    # 使用标准的服务启动方式
-    server = service.RPCService.create(topic=CONF.worker_topic)
+    rpc.init(CONF)
+
+    server = service.Service.create(binary="prototype-worker", topic=CONF.worker_topic)
     service.serve(server)
     service.wait()
 
     # 使用 launch_service 启动方式
     # launcher = service.process_launcher()
-    # server = service.RPCService.create(topic=CONF.worker_topic)
+    # server = service.Service.create(topic=CONF.worker_topic)
     # launcher.launch_service(server)
     # launcher.wait()
+
+
+if __name__ == '__main__':
+    main()

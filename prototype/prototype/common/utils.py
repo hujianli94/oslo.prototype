@@ -1,32 +1,18 @@
 import contextlib
-import datetime
-import functools
-import hashlib
-import hmac
 import inspect
 import os
 import pyclbr
-import random
-import re
 import shutil
-import socket
-import struct
 import sys
 import tempfile
-from xml.sax import saxutils
-import eventlet
-import netaddr
-from oslo_config import cfg
-import oslo_messaging as messaging
-from oslo_utils import excutils
+
 from oslo_utils import importutils
-from oslo_utils import timeutils
-from oslo_concurrency import lockutils
+
 from oslo_concurrency import processutils
-import six
 
 from prototype.common import exception
 from prototype.common.i18n import _, _LE, _LW
+from prototype.conf import CONF
 from oslo_log import log as logging
 
 """ This group is for very specific reasons.
@@ -41,16 +27,6 @@ This is a good place for your workaround.
 
 Please use with care!
 Document the BugID that your workaround is paired with."""
-
-workarounds_opts = [
-    cfg.BoolOpt('disable_rootwrap',
-                default=False,
-                help='This option allows a fallback to sudo for performance '
-                     'reasons. For example see '
-                     'https://bugs.launchpad.net/prototype/+bug/1415106'),
-]
-CONF = cfg.CONF
-CONF.register_opts(workarounds_opts, group='workarounds')
 
 LOG = logging.getLogger(__name__)
 
@@ -184,7 +160,7 @@ def find_config(config_path):
 
 
 def _get_root_helper():
-    if CONF.workarounds.disable_rootwrap:
+    if CONF.disable_rootwrap:
         cmd = 'sudo'
     else:
         cmd = 'sudo prototype-rootwrap %s' % CONF.rootwrap_config

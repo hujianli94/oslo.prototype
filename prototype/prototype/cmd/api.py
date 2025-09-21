@@ -18,30 +18,28 @@
 """
 Starter script for Prototype API.
 """
-
+import os
 import sys
-
-from oslo_config import cfg
-
-from prototype import config
 from oslo_log import log as logging
 from prototype.common import service
 from prototype.common import utils
 from prototype.common import rpc
+from prototype.conf import CONF
 from prototype import version
-
-CONF = cfg.CONF
-CONF.import_opt('enabled_apis', 'prototype.common.service')
-CONF.import_opt('enabled_ssl_apis', 'prototype.common.service')
 
 
 def main():
-    logging.register_options(CONF)
-    config.parse_args(sys.argv)
+    CONF(sys.argv[1:], project='prototype',
+         version=version.version_string())
+    logdir = CONF.log_dir
+    if logdir:
+        is_exists = os.path.exists(logdir)
+        if not is_exists:
+            os.makedirs(logdir)
     logging.setup(CONF, "prototype")
     rpc.init(CONF)
     utils.monkey_patch()
-    # 创建一个进程启动器
+
     launcher = service.process_launcher()
     for api in CONF.enabled_apis:
         should_use_ssl = api in CONF.enabled_ssl_apis

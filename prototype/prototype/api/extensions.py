@@ -25,7 +25,7 @@ import webob.exc
 import prototype.api.openstack
 from prototype.api.openstack import wsgi
 from prototype.common import exception
-from oslo_config import cfg
+from prototype.conf import CONF
 from prototype.common.i18n import _
 from oslo_serialization import jsonutils
 from oslo_utils import importutils
@@ -33,7 +33,6 @@ from oslo_log import log as logging
 import prototype.policy
 
 LOG = logging.getLogger(__name__)
-CONF = cfg.CONF
 
 
 class ExtensionDescriptor(object):
@@ -132,7 +131,7 @@ class ExtensionManager(object):
     def __init__(self):
         LOG.info(_('Initializing extension manager.'))
 
-        self.cls_list = CONF.osapi_servicemanage_extension
+        self.cls_list = CONF.osapi_prototype_extension
         self.extensions = {}
         self._load_extensions()
 
@@ -217,19 +216,19 @@ class ExtensionManager(object):
 
     def _load_extensions(self):
         """Load extensions specified on the command line."""
-        # 将 osapi_servicemanage_extension 配置项中的扩展工厂类名列表转换为一个列表
+        # 将 osapi_prototype_extension 配置项中的扩展工厂类名列表转换为一个列表
         extensions = list(self.cls_list)
 
         # NOTE(thingee): Backwards compat for the old extension loader path.
         # We can drop this post-grizzly in the H release.
-        old_contrib_path = ('prototype.api.openstack.servicemanage.contrib.'
+        old_contrib_path = ('prototype.api.openstack.prototype.contrib.'
                             'standard_extensions')
         new_contrib_path = 'prototype.api.contrib.standard_extensions'
         if old_contrib_path in extensions:
-            LOG.warn(_('osapi_servicemanage_extension is set to deprecated path: %s'),
+            LOG.warn(_('osapi_prototype_extension is set to deprecated path: %s'),
                      old_contrib_path)
             LOG.warn(_('Please set your flag or prototype.conf settings for '
-                       'osapi_servicemanage_extension to: %s'), new_contrib_path)
+                       'osapi_prototype_extension to: %s'), new_contrib_path)
             extensions = [e.replace(old_contrib_path, new_contrib_path)
                           for e in extensions]
         # 对 extensions 列表中的每个扩展工厂类名，调用 load_extension 方法加载扩展

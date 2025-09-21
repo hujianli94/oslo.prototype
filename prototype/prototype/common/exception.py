@@ -1,16 +1,11 @@
 import functools
 import sys
 
-from oslo_config import cfg
-from oslo_utils import excutils
-import webob.exc
-
-from prototype.common.i18n import _, _LE
 from oslo_log import log as logging
+from prototype.conf import CONF
+from prototype.common.i18n import _, _LE
 
 LOG = logging.getLogger(__name__)
-
-CONF = cfg.CONF
 
 
 class PrototypeException(Exception):
@@ -161,14 +156,14 @@ class ServiceNotFound(NotFound):
         super(ServiceNotFound, self).__init__(message, **kwargs)
 
 
-class WorkerNotFound(NotFound):
+class WorkerNodeNotFound(NotFound):
     message = _("Worker with %s could not be found.")
 
     def __init__(self, message=None, **kwargs):
         keys_list = ('{0}=%({0})s'.format(key) for key in kwargs)
         placeholder = ', '.join(keys_list)
         self.message = self.message % placeholder
-        super(WorkerNotFound, self).__init__(message, **kwargs)
+        super(WorkerNodeNotFound, self).__init__(message, **kwargs)
 
 
 class HostNotFound(NotFound):

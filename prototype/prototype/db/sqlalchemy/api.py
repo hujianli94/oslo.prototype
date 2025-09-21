@@ -23,7 +23,6 @@ import sys
 import threading
 import time
 import warnings
-from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_db.sqlalchemy import session as db_session
 from oslo_db.sqlalchemy import utils as db_utils
@@ -31,9 +30,9 @@ from oslo_utils import timeutils
 from prototype.db.sqlalchemy import models
 from prototype.common.i18n import _, _LI, _LE, _LW
 from prototype.common import exception
+from prototype.conf import CONF
 from oslo_log import log as logging
 
-CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 _ENGINE_FACADE = None
@@ -361,3 +360,64 @@ def service_get_all_by_host_and_topic(context, host, topic):
         filter_by(host=host). \
         filter_by(topic=topic). \
         all()
+
+
+############################ WorkerNode #################################
+@require_admin_context
+def worker_node_get(context, worker_node_id):
+    """Get a worker node or raise WorkerNodeNotFound if it does not exist."""
+    result = model_query(context, models.WorkerNode, read_deleted="no"). \
+        filter_by(id=worker_node_id). \
+        first()
+
+    if not result:
+        raise exception.WorkerNodeNotFound(worker_node_id=worker_node_id)
+
+    return result
+
+
+@require_admin_context
+def worker_node_create(context, values):
+    """Create a worker node from the values dictionary."""
+    worker_node_ref = models.WorkerNode()
+    worker_node_ref.update(values)
+    worker_node_ref.save()
+    return worker_node_ref
+
+
+@require_admin_context
+def worker_node_update(context, worker_node_id, values):
+    """Set the given properties on a worker node and update it.
+
+    :raises: WorkerNodeNotFound if worker node does not exist
+    """
+    worker_node_ref = worker_node_get(context, worker_node_id)
+    worker_node_ref.update(values)
+    worker_node_ref.save()
+    return worker_node_ref
+
+
+@require_admin_context
+def worker_node_destroy(context, worker_node_id):
+    """Destroy the worker node or raise WorkerNodeNotFound if it does not exist."""
+    try:
+        worker_node_ref = worker_node_get(context, worker_node_id)
+        # 软删除
+        worker_node_ref['deleted'] = True
+        worker_node_ref['deleted_at'] = timeutils.utcnow()
+        worker_node_ref['updated_at'] = worker_node_ref['deleted_at']
+        worker_node_ref.save()
+    except exception.WorkerNodeNotFound:
+        raise
+    except Exception as e:
+        LOG.error("Error deleting worker node: %s" % e)
+        raise
+
+
+@require_admin_context
+def worker_node_get_all(context, filters=None):
+    """Get all worker nodes."""
+    query = model_query(context, models.WorkerNode, read_deleted="no")
+    if filters:
+        query = exact_filter(query, models.WorkerNode, filters, models.WorkerNode.__table__.columns.keys())
+    return query.all()

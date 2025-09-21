@@ -27,13 +27,10 @@ these objects be simple dictionaries.
 
 """
 
-from oslo_config import cfg
 from oslo_db import concurrency
-
 from prototype.common.i18n import _LE
+from prototype.conf import CONF
 from oslo_log import log as logging
-
-CONF = cfg.CONF
 
 _BACKEND_MAPPING = {'sqlalchemy': 'prototype.db.sqlalchemy.api'}
 
@@ -81,3 +78,24 @@ def service_get_by_args(context, host, binary):
 
 def service_get_all_by_host_and_topic(context, host, topic):
     return IMPL.service_get_all_by_host_and_topic(context, host, topic)
+
+
+############################ WorkerNode #################################
+def worker_node_get(context, worker_node_id):
+    return IMPL.worker_node_get(context, worker_node_id)
+
+
+def worker_node_create(context, values):
+    return IMPL.worker_node_create(context, values)
+
+
+def worker_node_update(context, worker_node_id, values):
+    return IMPL.worker_node_update(context, worker_node_id, values)
+
+
+def worker_node_destroy(context, worker_node_id):
+    return IMPL.worker_node_destroy(context, worker_node_id)
+
+
+def worker_node_get_all(context, filters=None):
+    return IMPL.worker_node_get_all(context, filters)

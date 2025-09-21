@@ -20,3 +20,6 @@
    :synopsis: Wrapper around console proxies such as xvp to set up
               multitenant VM console access
 """
+
+from prototype.worker import api
+from prototype.worker import rpcapi

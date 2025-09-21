@@ -1,23 +1,7 @@
 # coding=utf-8
 # Copyright (c) 2011 X.commerce, a business unit of eBay Inc.
-# Copyright 2010 United States Government as represented by the
-# Administrator of the National Aeronautics and Space Administration.
-# Copyright 2011 Piston Cloud Computing, Inc.
-# All Rights Reserved.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
-
-from oslo_config import cfg
+import six
+from prototype.conf import CONF
 from oslo_db.sqlalchemy import models
 from oslo_utils import timeutils
 from sqlalchemy.ext.declarative import declarative_base  # noqa
@@ -25,14 +9,20 @@ from sqlalchemy import orm
 from sqlalchemy import Table, Column, ForeignKey, Index, MetaData
 from sqlalchemy import DateTime, Integer, String, BigInteger, Boolean, Text, Unicode, Float
 
-CONF = cfg.CONF
 BASE = declarative_base()
+
+
+def get_session():
+    from prototype.db.sqlalchemy import api as db_api
+    return db_api.get_session()
 
 
 class PrototypeBase(models.SoftDeleteMixin, models.TimestampMixin, models.ModelBase):
     metadata = None
     __table_args__ = {'mysql_engine': 'InnoDB'}
     __table_initialized__ = False
+    created_at = Column(DateTime, default=lambda: timeutils.utcnow())
+    updated_at = Column(DateTime, onupdate=lambda: timeutils.utcnow())
 
     def __copy__(self):
         """Implement a safe copy.copy()."""
@@ -47,11 +37,38 @@ class PrototypeBase(models.SoftDeleteMixin, models.TimestampMixin, models.ModelB
             session = api.get_session()
         super(PrototypeBase, self).save(session=session)
 
-    def delete(self, session):
+    def expire(self, session=None, attrs=None):
+        """Expire this object ()."""
+        if not session:
+            session = get_session()
+        session.expire(self, attrs)
+
+    def refresh(self, session=None, attrs=None):
+        """Refresh this object."""
+        if not session:
+            session = get_session()
+        session.refresh(self, attrs)
+
+    @staticmethod
+    def delete_values():
+        return {'deleted': True,
+                'deleted_at': timeutils.utcnow()}
+
+    def delete(self, session=None):
         """Delete this object."""
-        self.deleted = True
-        self.deleted_at = timeutils.utcnow()
-        self.save(session=session)
+        if not session:
+            session = get_session()
+        session.begin(subtransactions=True)
+        session.delete(self)
+        session.commit()
+
+    def update_and_save(self, values, session=None):
+        if not session:
+            session = get_session()
+        session.begin(subtransactions=True)
+        for k, v in six.iteritems(values):
+            setattr(self, k, v)
+        session.commit()
 
 
 class Service(BASE, PrototypeBase):
@@ -60,8 +77,29 @@ class Service(BASE, PrototypeBase):
     id = Column(Integer, primary_key=True, nullable=False)
     host = Column(String(255))
     binary = Column(String(255))  # 服务运行的二进制文件名
-    type = Column(String(255))
     topic = Column(String(255))
     report_count = Column(Integer, nullable=False, default=0)  # 上报次数
     disabled = Column(Boolean, default=False)
     availability_zone = Column(String(255), default='prototype')
+
+
+class WorkerNode(BASE, PrototypeBase):
+    """Represents an agent node's resources."""
+
+    __tablename__ = 'worker_nodes'
+    id = Column(Integer, primary_key=True)
+    hostname = Column(String(255), nullable=False)
+    os = Column(String(255), nullable=False)
+    os_version = Column(String(255), nullable=False)
+    cpu_count = Column(Integer, nullable=False)
+    cpu_count_logical = Column(Float, nullable=False)
+    memory_total_gb = Column(Float, nullable=False)
+    memory_available_gb = Column(Float, nullable=False)
+    memory_percent = Column(Float, default=0.0, nullable=False)
+
+    @classmethod
+    def get_all(cls, session, filters=None):
+        query = session.query(cls).filter_by(deleted=False)
+        if filters:
+            query = query.filter_by(**filters)
+        return query.all()

@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging as messaging
 from oslo_service import periodic_task
 from prototype import version
 from prototype.db import base
+from prototype.conf import CONF
 
-CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 

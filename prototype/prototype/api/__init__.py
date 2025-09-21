@@ -15,13 +15,12 @@
 #    under the License.
 
 
-from oslo_config import cfg
 from oslo_log import log as logging
 from prototype.common.i18n import _
+from prototype.conf import CONF
 
 import paste.urlmap
 
-CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 

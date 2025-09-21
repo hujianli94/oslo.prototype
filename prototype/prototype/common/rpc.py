@@ -28,14 +28,12 @@ __all__ = [
     'get_transport_url',
 ]
 
-from oslo_config import cfg
 import oslo_messaging as messaging
-
+from oslo_serialization import jsonutils
 from oslo_context import context as ctx
 import prototype.common.exception
-from oslo_serialization import jsonutils
+from prototype.conf import CONF
 
-CONF = cfg.CONF
 TRANSPORT = None
 NOTIFIER = None
 

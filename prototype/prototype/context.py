@@ -18,27 +18,13 @@
 """RequestContext: context for requests that persist through all of cinder."""
 
 import copy
-
-from oslo_config import cfg
+import six
 from oslo_context import context
 from oslo_log import log as logging
 from oslo_utils import timeutils
 from prototype import policy
-import six
-
+from prototype.conf import CONF
 from prototype.common.i18n import _, _LW
-
-context_opts = [
-    cfg.StrOpt('prototype_internal_tenant_project_id',
-               help='ID of the project which will be used as the Prototype '
-                    'internal tenant.'),
-    cfg.StrOpt('prototype_internal_tenant_user_id',
-               help='ID of the user to be used in volume operations as the '
-                    'Prototype internal tenant.'),
-]
-
-CONF = cfg.CONF
-CONF.register_opts(context_opts)
 
 LOG = logging.getLogger(__name__)
 
@@ -194,8 +180,8 @@ def get_internal_tenant_context():
     not be able to make requests to remote services. To do so it will need to
     use the keystone client to get an auth_token.
     """
-    project_id = CONF.cinder_internal_tenant_project_id
-    user_id = CONF.cinder_internal_tenant_user_id
+    project_id = CONF.prototype_internal_tenant_project_id
+    user_id = CONF.prototype_internal_tenant_user_id
 
     if project_id and user_id:
         return RequestContext(user_id=user_id,

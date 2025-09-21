@@ -1,8 +1,5 @@
-from oslo_config import cfg
-
+from prototype.conf import CONF
 from prototype.db import base
-
-CONF = cfg.CONF
 
 
 class API(base.Base):

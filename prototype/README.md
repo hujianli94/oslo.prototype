@@ -38,7 +38,7 @@ curl -s -X GET http://172.22.180.123:8778/v1/services | python -m json.tool
 # 创建服务
 curl -i -X POST http://172.22.180.123:8778/v1/services \
   -H "Content-Type: application/json" \
-  -d '{"host": "compute01", "type": "compute", "topic": "worker"}'
+  -d '{"host": "compute01", "type": "rpc", "topic": "worker"}'
 
 #3. GET /v1/services/{service_id}
 # 获取指定ID的服务详情
@@ -61,11 +61,14 @@ curl -i -X DELETE http://172.22.180.123:8778/v1/services/{service_id}
 # 先启动 worker 进程
 prototype-worker --config-file /etc/prototype/prototype.conf
 # 调用 rpc 方法
-curl -i -X GET http://172.22.180.123:8778/v1/services/rpc_test
+#curl -i -X GET http://172.22.180.123:8778/v1/services/rpc_test
+curl -s -X GET http://172.22.180.123:8778/v1/services/rpc_test | python -m json.tool
 
 # 测试 扩展 API v2 接口
-# 列出所有 system_info
-curl -s  -X GET http://172.28.128.138:8778/v2/system_info| python -m json.tool
+# 列出所有 worker_info
+curl -s  -X GET http://172.22.180.123:8778/v2/worker_info | python -m json.tool
+
+# 定时任务将 worker_info 缓存在数据库中
 ```
 
 ### API v2 测试

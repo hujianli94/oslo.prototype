@@ -21,12 +21,11 @@ import urlparse
 
 import webob
 
-from oslo_config import cfg
 from oslo_log import log as logging
 from prototype.common.i18n import _
+from prototype.conf import CONF as CFG
 
 LOG = logging.getLogger(__name__)
-CFG = cfg.CONF
 
 
 def get_pagination_params(request):
@@ -186,7 +185,7 @@ class ViewBuilder(object):
         params = request.params.copy()
         params["marker"] = identifier
         prefix = self._update_link_prefix(request.application_url,
-                                          CFG.osapi_servicemanage_base_URL)
+                                          CFG.osapi_prototype_base_URL)
         url = os.path.join(prefix,
                            request.environ["prototype.context"].project_id,
                            self._collection_name)
@@ -195,7 +194,7 @@ class ViewBuilder(object):
     def _get_href_link(self, request, identifier):
         """Return an href string pointing to this object."""
         prefix = self._update_link_prefix(request.application_url,
-                                          CFG.osapi_servicemanage_base_URL)
+                                          CFG.osapi_prototype_base_URL)
         return os.path.join(prefix,
                             request.environ["prototype.context"].project_id,
                             self._collection_name,
@@ -205,7 +204,7 @@ class ViewBuilder(object):
         """Create a URL that refers to a specific resource."""
         base_url = remove_version_from_href(request.application_url)
         base_url = self._update_link_prefix(base_url,
-                                            CFG.osapi_servicemanage_base_URL)
+                                            CFG.osapi_prototype_base_URL, )
         return os.path.join(base_url,
                             request.environ["prototype.context"].project_id,
                             self._collection_name,

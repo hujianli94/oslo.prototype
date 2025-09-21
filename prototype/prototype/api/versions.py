@@ -18,7 +18,7 @@
 
 import copy
 
-from oslo_config import cfg
+from prototype.conf import CONF
 from six.moves import http_client
 
 from prototype.api import extensions
@@ -26,8 +26,6 @@ from prototype.api import openstack
 from prototype.api.openstack import api_version_request
 from prototype.api.openstack import wsgi
 from prototype.api.views import versions as views_versions
-
-CONF = cfg.CONF
 
 _LINKS = [{
     "rel": "describedby",

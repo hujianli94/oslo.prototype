@@ -17,19 +17,11 @@
 Client side of the console RPC API.
 """
 
-from oslo_config import cfg
 import oslo_messaging as messaging
 from oslo_log import log as logging
 from prototype.common import rpc
+from prototype.conf import CONF
 
-rpcapi_opts = [
-    cfg.StrOpt('worker_topic',
-               default='worker',
-               help='The topic console proxy nodes listen on'),
-]
-
-CONF = cfg.CONF
-CONF.register_opts(rpcapi_opts)
 LOG = logging.getLogger(__name__)
 
 
@@ -54,7 +46,7 @@ class WorkerRPCAPI(object):
         cctxt = self.client.prepare()
         return cctxt.call(ctxt, 'debug')
 
-    def get_system_info(self, ctxt):
-        LOG.debug("WorkerRPCAPI.get_system_info called")
+    def get_worker_info(self, ctxt):
+        LOG.debug("WorkerRPCAPI.get_worker_info called")
         cctxt = self.client.prepare()
-        return cctxt.call(ctxt, 'get_system_info')
+        return cctxt.call(ctxt, 'get_worker_info')

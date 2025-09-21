@@ -60,25 +60,20 @@ import os
 import sys
 
 import decorator
-import netaddr
 from oslo_config import cfg
-import oslo_messaging as messaging
+from oslo_log import log as logging
 from oslo_utils import importutils
 import six
 
-from prototype import config
-from oslo_context import context
-from prototype import db
-from prototype.db import migration
+from prototype.conf import CONF
 from prototype.common import exception
+from prototype.common import i18n
 from prototype.common.i18n import _
-from oslo_log import log as logging
 from prototype.common import cliutils
 from prototype import version
+from prototype.db import migration as db_migration
 
-CONF = cfg.CONF
-
-
+i18n.enable_lazy()
 
 
 class MissingArgs(Exception):
@@ -210,7 +205,7 @@ def _db_error(caught_exception):
     print('%s' % caught_exception)
     print(_("The above error may show that the database has not "
             "been created.\nPlease create a database using "
-            "'venus-manage db sync' before running this command."))
+            "'prototype-manage db sync' before running this command."))
     exit(1)
 
 
@@ -270,14 +265,15 @@ class DbCommands(object):
     def __init__(self):
         pass
 
-    @args('--version', metavar='<version>', help='Database version')
+    @args('version', nargs='?', default=None,
+          help='Database version')
     def sync(self, version=None):
         """Sync the database up to the most recent version."""
-        return migration.db_sync(version)
+        return db_migration.db_sync(version)
 
     def version(self):
         """Print the current database version."""
-        print(migration.db_version())
+        print(db_migration.db_version())
 
 
 CATEGORIES = {
@@ -300,57 +296,79 @@ def methods_of(obj):
 
 
 def add_command_parsers(subparsers):
-    parser = subparsers.add_parser('version')
-
-    parser = subparsers.add_parser('bash-completion')
-    parser.add_argument('query_category', nargs='?')
-
     for category in CATEGORIES:
         command_object = CATEGORIES[category]()
 
-        desc = getattr(command_object, 'description', None)
-        parser = subparsers.add_parser(category, description=desc)
+        parser = subparsers.add_parser(category)
         parser.set_defaults(command_object=command_object)
 
         category_subparsers = parser.add_subparsers(dest='action')
 
         for (action, action_fn) in methods_of(command_object):
-            parser = category_subparsers.add_parser(action, description=desc)
+            parser = category_subparsers.add_parser(action)
 
             action_kwargs = []
             for args, kwargs in getattr(action_fn, 'args', []):
-                # FIXME(markmc): hack to assume dest is the arg name without
-                # the leading hyphens if no dest is supplied
-                kwargs.setdefault('dest', args[0][2:])
-                if kwargs['dest'].startswith('action_kwarg_'):
-                    action_kwargs.append(
-                        kwargs['dest'][len('action_kwarg_'):])
-                else:
-                    action_kwargs.append(kwargs['dest'])
-                    kwargs['dest'] = 'action_kwarg_' + kwargs['dest']
-
                 parser.add_argument(*args, **kwargs)
 
             parser.set_defaults(action_fn=action_fn)
             parser.set_defaults(action_kwargs=action_kwargs)
 
-            parser.add_argument('action_args', nargs='*',
-                                help=argparse.SUPPRESS)
-
 
 category_opt = cfg.SubCommandOpt('category',
                                  title='Command categories',
-                                 help='Available categories',
                                  handler=add_command_parsers)
+
+
+def get_arg_string(args):
+    if args[0] == '-':
+        # (Note)zhiteng: args starts with FLAGS.oparser.prefix_chars
+        # is optional args. Notice that cfg module takes care of
+        # actual ArgParser so prefix_chars is always '-'.
+        if args[1] == '-':
+            # This is long optional arg
+            arg = args[2:]
+        else:
+            arg = args[1:]
+    else:
+        arg = args
+
+    return arg
+
+
+def fetch_func_args(func):
+    fn_args = []
+    for args, kwargs in getattr(func, 'args', []):
+        arg = get_arg_string(args[0])
+        fn_args.append(getattr(CONF.category, arg))
+
+    return fn_args
 
 
 def main():
     """Parse options and call the appropriate class/method."""
     CONF.register_cli_opt(category_opt)
+    script_name = sys.argv[0]
+    if len(sys.argv) < 2:
+        print(_("\nOpenStack Prototype version: %(version)s\n") %
+              {'version': version.version_string()})
+        print(script_name + " category action [<args>]")
+        print(_("Available categories:"))
+        for category in CATEGORIES:
+            print(_("\t%s") % category)
+        sys.exit(2)
+
     try:
-        logging.register_options(CONF)
-        config.parse_args(sys.argv)
+        CONF(sys.argv[1:], project='prototype',
+             version=version.version_string())
+        # logdir = CONF.log_dir
+        # is_exits = os.path.exists(logdir)
+        # if not is_exits:
+        #     os.makedirs(logdir)
         logging.setup(CONF, "prototype")
+    except cfg.ConfigDirNotFoundError as details:
+        print(_("Invalid directory: %s") % details)
+        sys.exit(2)
     except cfg.ConfigFilesNotFoundError:
         cfgfile = CONF.config_file[-1] if CONF.config_file else None
         if cfgfile and not os.access(cfgfile, os.R_OK):
@@ -362,61 +380,12 @@ def main():
                 print(_('sudo failed, continuing as if nothing happened'))
 
         print(_('Please re-run prototype-manage as root.'))
-        return (2)
-
-    # 优化：更精确地判断哪些操作不需要RPC
-    should_init_rpc = True
-    if (CONF.category.name == "db" or
-            CONF.category.name == "version" or
-            CONF.category.name == "bash-completion"):
-        should_init_rpc = False
-
-    # 只在需要时初始化RPC
-    if should_init_rpc:
-        # 延迟导入RPC模块，进一步减少不必要的导入
-        from prototype.common import rpc
-        rpc.init(CONF)
-
-    if CONF.category.name == "version":
-        print(version.version_string())
-        return (0)
-
-    if CONF.category.name == "bash-completion":
-        if not CONF.category.query_category:
-            print(" ".join(CATEGORIES.keys()))
-        elif CONF.category.query_category in CATEGORIES:
-            fn = CATEGORIES[CONF.category.query_category]
-            command_object = fn()
-            actions = methods_of(command_object)
-            print(" ".join([k for (k, v) in actions]))
-        return (0)
+        sys.exit(2)
 
     fn = CONF.category.action_fn
-    fn_args = [arg.decode('utf-8') for arg in CONF.category.action_args]
-    fn_kwargs = {}
-    for k in CONF.category.action_kwargs:
-        v = getattr(CONF.category, 'action_kwarg_' + k)
-        if v is None:
-            continue
-        if isinstance(v, six.string_types):
-            v = v.decode('utf-8')
-        fn_kwargs[k] = v
+    fn_args = fetch_func_args(fn)
+    fn(*fn_args)
 
-    # call the action with the remaining arguments
-    # check arguments
-    try:
-        cliutils.validate_args(fn, *fn_args, **fn_kwargs)
-    except cliutils.MissingArgs as e:
-        # NOTE(mikal): this isn't the most helpful error message ever. It is
-        # long, and tells you a lot of things you probably don't want to know
-        # if you just got a single arg wrong.
-        print(fn.__doc__)
-        CONF.print_help()
-        print(e)
-        return (1)
-    try:
-        ret = fn(*fn_args, **fn_kwargs)
-        return (ret)
-    except Exception:
-        print(_("Command failed, please check log for more info"))
-        raise
+
+if __name__ == "__main__":
+    main()

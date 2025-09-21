@@ -19,12 +19,10 @@ It can't be called 'extensions' because that causes namespacing problems.
 
 """
 
-from oslo_config import cfg
 from oslo_log import log as logging
-
 from prototype.api import extensions
+from prototype.conf import CONF
 
-CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 
